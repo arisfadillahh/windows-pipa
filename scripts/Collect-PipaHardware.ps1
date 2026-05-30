@@ -34,10 +34,66 @@ function Save-Command {
     )
 
     $path = Join-Path $OutDir "$Name.txt"
+    $previousErrorActionPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = 'Continue'
         & $Command 2>&1 | Out-File -FilePath $path -Encoding utf8
     } catch {
         "ERROR: $($_.Exception.Message)" | Out-File -FilePath $path -Encoding utf8
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
+function Save-NativeCommand {
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $FilePath,
+        [Parameter(Mandatory)] [string[]] $Arguments,
+        [int] $TimeoutSeconds = 45
+    )
+
+    $path = Join-Path $OutDir "$Name.txt"
+    $argumentLine = ($Arguments | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"' + ($_.Replace('\', '\\').Replace('"', '\"')) + '"'
+        } else {
+            $_
+        }
+    }) -join ' '
+
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+
+    try {
+        $process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $argumentLine `
+            -NoNewWindow `
+            -PassThru `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath
+
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $process.Kill() } catch { }
+            "ERROR: command timed out after $TimeoutSeconds seconds" | Out-File -FilePath $path -Encoding utf8
+            return
+        }
+
+        $lines = @()
+        $process.Refresh()
+        $stdoutRaw = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { '' }
+        $stderrRaw = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { '' }
+        $stdoutText = if ($null -eq $stdoutRaw) { '' } else { $stdoutRaw.TrimEnd() }
+        $stderrText = if ($null -eq $stderrRaw) { '' } else { $stderrRaw.TrimEnd() }
+        if ($stdoutText) { $lines += $stdoutText }
+        if ($stderrText) { $lines += $stderrText }
+        $lines += "EXITCODE=$($process.ExitCode)"
+        $lines | Out-File -FilePath $path -Encoding utf8
+    } catch {
+        "ERROR: $($_.Exception.Message)" | Out-File -FilePath $path -Encoding utf8
+    } finally {
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -45,25 +101,25 @@ if ($UseAdb) {
     $adb = Resolve-LocalTool -Name 'adb' -ExplicitPath $AdbPath
     Write-Step "Collecting Android/ADB data"
 
-    Save-Command 'adb-devices' { & $adb devices -l }
-    Save-Command 'adb-getprop' { & $adb shell getprop }
-    Save-Command 'adb-cmdline' { & $adb shell cat /proc/cmdline }
-    Save-Command 'adb-partitions' { & $adb shell cat /proc/partitions }
-    Save-Command 'adb-by-name' { & $adb shell ls -l /dev/block/by-name }
-    Save-Command 'adb-mounts' { & $adb shell mount }
-    Save-Command 'adb-input' { & $adb shell ls -l /dev/input; & $adb shell cat /proc/bus/input/devices }
-    Save-Command 'adb-dmesg-filtered' { & $adb shell dmesg | Select-String -Pattern 'adreno|gpu|dsi|touch|goodix|novatek|i2c|camera|cam|cci|csiphy|csid|qcom|wifi|bt|battery|charger' }
+    Save-NativeCommand 'adb-devices' $adb @('devices', '-l')
+    Save-NativeCommand 'adb-getprop' $adb @('shell', 'getprop')
+    Save-NativeCommand 'adb-cmdline' $adb @('shell', 'cat', '/proc/cmdline')
+    Save-NativeCommand 'adb-partitions' $adb @('shell', 'cat', '/proc/partitions')
+    Save-NativeCommand 'adb-by-name' $adb @('shell', 'ls', '-l', '/dev/block/by-name')
+    Save-NativeCommand 'adb-mounts' $adb @('shell', 'mount')
+    Save-NativeCommand 'adb-input' $adb @('shell', 'sh', '-c', 'ls -l /dev/input; cat /proc/bus/input/devices')
+    Save-NativeCommand 'adb-dmesg-filtered' $adb @('shell', 'sh', '-c', "dmesg | grep -Ei 'adreno|gpu|dsi|touch|goodix|novatek|i2c|camera|cam|cci|csiphy|csid|qcom|wifi|bt|battery|charger' || true")
 }
 
 if ($UseFastboot) {
     $fastboot = Resolve-LocalTool -Name 'fastboot' -ExplicitPath $FastbootPath
     Write-Step "Collecting fastboot data"
 
-    Save-Command 'fastboot-devices' { & $fastboot devices }
-    Save-Command 'fastboot-vars' { & $fastboot getvar all }
-    Save-Command 'fastboot-product' { & $fastboot getvar product }
-    Save-Command 'fastboot-current-slot' { & $fastboot getvar current-slot }
-    Save-Command 'fastboot-unlocked' { & $fastboot getvar unlocked }
+    Save-NativeCommand 'fastboot-devices' $fastboot @('devices')
+    Save-NativeCommand 'fastboot-vars' $fastboot @('getvar', 'all')
+    Save-NativeCommand 'fastboot-product' $fastboot @('getvar', 'product')
+    Save-NativeCommand 'fastboot-current-slot' $fastboot @('getvar', 'current-slot')
+    Save-NativeCommand 'fastboot-unlocked' $fastboot @('getvar', 'unlocked')
 }
 
 if ($UseSsh) {
