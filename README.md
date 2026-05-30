@@ -3,8 +3,9 @@
 Windows on Arm bring-up kit for Xiaomi Pad 6 (`pipa`, Snapdragon 870 / SM8250).
 
 This repository is an installer and research workspace. It does not ship Windows,
-Xiaomi firmware blobs, Qualcomm proprietary drivers, or a verified pipa UEFI
-binary. Those files must come from official sources or from your own device.
+Xiaomi firmware blobs, Qualcomm proprietary drivers, or third-party UEFI
+binaries. Those files must come from official sources, community releases, or
+your own device.
 
 ## Current goal
 
@@ -23,10 +24,12 @@ Linux boot slot.
 - Flashes a supplied UEFI boot image to an explicit boot slot.
 - Uses destructive gates so the installer cannot format or flash without
   `-AllowDestructive`.
+- Documents the locally downloaded Microsoft Windows ARM64 ISO and pipa UEFI
+  candidate in [docs/ARTIFACTS.md](docs/ARTIFACTS.md).
 
 ## What is not solved yet
 
-- Verified Xiaomi Pad 6 UEFI image.
+- A proven modern Xiaomi Pad 6 Windows driver stack.
 - WDDM GPU acceleration for Adreno 650 on Windows.
 - Windows camera stack for Qualcomm ISP + Xiaomi sensors.
 - Audio DSP, suspend, pen, and thermal tuning.
@@ -51,7 +54,7 @@ Apply Windows to the mounted Linux partition:
 
 ```powershell
 .\scripts\Install-PipaWindows.ps1 `
-  -WindowsIso "C:\ISO\Win11_Arm64.iso" `
+  -WindowsIso "D:\ISO\Win11_25H2_English_Arm64_v2.iso" `
   -WindowsDrive W `
   -EspDrive S `
   -DriverPath ".\drivers\vendor" `
@@ -63,7 +66,7 @@ Flash your tested UEFI image to the Linux boot slot:
 
 ```powershell
 .\scripts\Flash-PipaBoot.ps1 `
-  -UefiImage ".\firmware\Mu-pipa.img" `
+  -UefiImage ".\firmware\pipa_dualrole.img" `
   -BootSlot b `
   -AllowDestructive
 ```

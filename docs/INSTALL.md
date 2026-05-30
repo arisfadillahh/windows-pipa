@@ -6,10 +6,11 @@ untouched if the correct Linux drive and Linux boot slot are selected.
 
 ## Required files
 
-- Official Windows 11 ARM64 ISO.
+- Official Windows 11 ARM64 ISO. The current local ISO is documented in
+  [ARTIFACTS.md](ARTIFACTS.md).
 - Android platform-tools for Windows. `Fetch-Dependencies.ps1` downloads these.
 - A tested Xiaomi Pad 6 UEFI boot image, placed for example at
-  `firmware\Mu-pipa.img`.
+  `firmware\pipa_dualrole.img`.
 - Optional Windows ARM64 drivers in `drivers\`.
 
 This repo does not redistribute Windows, Xiaomi firmware, Qualcomm blobs, or
@@ -78,7 +79,7 @@ replace. The safer route is to build the Windows disk image on the PC first:
 
 ```powershell
 .\scripts\Build-PipaWindowsImage.ps1 `
-  -WindowsIso "C:\ISO\Win11_Arm64.iso" `
+  -WindowsIso "D:\ISO\Win11_25H2_English_Arm64_v2.iso" `
   -DiskSizeGB 80 `
   -DriverPath ".\drivers\vendor"
 ```
@@ -94,7 +95,7 @@ Then boot to fastboot and flash the payload:
 ```powershell
 .\scripts\Flash-PipaWindowsPayload.ps1 `
   -WindowsSparseImage ".\out\windows-image\pipa-windows-sparse.img" `
-  -UefiBootImage ".\firmware\Mu-pipa.img" `
+  -UefiBootImage ".\firmware\pipa_dualrole.img" `
   -WindowsSlot b `
   -AllowDestructive
 ```
@@ -105,7 +106,7 @@ Dry run first:
 
 ```powershell
 .\scripts\Install-PipaWindows.ps1 `
-  -WindowsIso "C:\ISO\Win11_Arm64.iso" `
+  -WindowsIso "D:\ISO\Win11_25H2_English_Arm64_v2.iso" `
   -WindowsDrive W `
   -EspDrive S `
   -DriverPath ".\drivers\vendor" `
@@ -116,7 +117,7 @@ Actual install:
 
 ```powershell
 .\scripts\Install-PipaWindows.ps1 `
-  -WindowsIso "C:\ISO\Win11_Arm64.iso" `
+  -WindowsIso "D:\ISO\Win11_25H2_English_Arm64_v2.iso" `
   -WindowsDrive W `
   -EspDrive S `
   -DriverPath ".\drivers\vendor" `
@@ -134,7 +135,7 @@ flash only `boot_b`:
 
 ```powershell
 .\scripts\Flash-PipaBoot.ps1 `
-  -UefiImage ".\firmware\Mu-pipa.img" `
+  -UefiImage ".\firmware\pipa_dualrole.img" `
   -BootSlot b `
   -AllowDestructive
 ```
