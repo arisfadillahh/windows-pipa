@@ -125,6 +125,68 @@ try {
         'on'
     ) -AllowFailure
 
+    Write-Step "Applying offline Windows tablet boot tweaks"
+    $systemHive = Join-Path $windowsRoot 'Windows\System32\config\SYSTEM'
+    $softwareHive = Join-Path $windowsRoot 'Windows\System32\config\SOFTWARE'
+    $systemKey = 'HKLM\PIPA_SYSTEM'
+    $softwareKey = 'HKLM\PIPA_SOFTWARE'
+
+    Invoke-Native -FilePath 'reg.exe' -Arguments @('load', $systemKey, $systemHive) -AllowFailure
+    try {
+        Invoke-Native -FilePath 'reg.exe' -Arguments @(
+            'add',
+            "$systemKey\ControlSet001\Control\USB",
+            '/v',
+            'OsDefaultRoleSwitchMode',
+            '/t',
+            'REG_DWORD',
+            '/d',
+            '1',
+            '/f'
+        ) -AllowFailure
+    } finally {
+        Invoke-Native -FilePath 'reg.exe' -Arguments @('unload', $systemKey) -AllowFailure
+    }
+
+    Invoke-Native -FilePath 'reg.exe' -Arguments @('load', $softwareKey, $softwareHive) -AllowFailure
+    try {
+        Invoke-Native -FilePath 'reg.exe' -Arguments @(
+            'add',
+            "$softwareKey\Microsoft\Windows\CurrentVersion\OOBE",
+            '/v',
+            'LaunchUserOOBE',
+            '/t',
+            'REG_DWORD',
+            '/d',
+            '0',
+            '/f'
+        ) -AllowFailure
+        Invoke-Native -FilePath 'reg.exe' -Arguments @(
+            'add',
+            "$softwareKey\Microsoft\Windows\CurrentVersion\OOBE",
+            '/v',
+            'DefaultAccountAction',
+            '/t',
+            'REG_DWORD',
+            '/d',
+            '0',
+            '/f'
+        ) -AllowFailure
+        Invoke-Native -FilePath 'reg.exe' -Arguments @(
+            'add',
+            "$softwareKey\Policies\Microsoft\Windows\OOBE",
+            '/v',
+            'DisablePrivacyExperience',
+            '/t',
+            'REG_DWORD',
+            '/d',
+            '1',
+            '/f'
+        ) -AllowFailure
+    } finally {
+        Invoke-Native -FilePath 'reg.exe' -Arguments @('unload', $softwareKey) -AllowFailure
+    }
+
     if (-not $SkipUnattend) {
         Write-Step "Writing minimal unattend file"
         $pantherDir = Join-Path $windowsRoot 'Windows\Panther'

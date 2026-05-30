@@ -58,6 +58,17 @@ letters:
 Do not select Android `userdata`, `super`, `boot_a`, `boot_b`, `vendor_boot`,
 `dtbo`, `vbmeta`, modem, or persist partitions.
 
+On the connected device captured in this repo, Android is slot `a` and the
+large Linux partition is `/dev/block/sda35` / by-name `linux` with about
+108.36 GiB available. See [CURRENT_DEVICE.md](CURRENT_DEVICE.md).
+
+If postmarketOS is booted and SSH is reachable, collect Linux-side facts first:
+
+```powershell
+.\scripts\Find-PipaSsh.ps1 -Subnet 192.168.1
+python .\scripts\Collect-PipaLinuxSsh.py --host 192.168.1.60 --user user
+```
+
 ## 4. Apply Windows
 
 Dry run first:
