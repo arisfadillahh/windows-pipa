@@ -1,0 +1,16 @@
+out/
+captures/
+tools/platform-tools/
+*.log
+*.tmp
+*.wim
+*.esd
+*.iso
+*.img
+*.bin
+*.elf
+*.fd
+*.cab
+
+!.gitkeep
+

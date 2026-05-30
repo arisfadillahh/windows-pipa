@@ -1,0 +1,21 @@
+; Placeholder only. Do not install this file.
+; Real pipa ACPI hardware IDs must come from the UEFI/ACPI implementation.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+DriverVer=05/30/2026,0.0.0.0
+CatalogFile=pipa-placeholder.cat
+
+[Manufacturer]
+%ProviderName%=Models,NTarm64
+
+[Models.NTarm64]
+; %DeviceName%=Install, ACPI\PIPA0000
+
+[Strings]
+ProviderName="pipa-woa"
+DeviceName="Xiaomi Pad 6 placeholder device"
+

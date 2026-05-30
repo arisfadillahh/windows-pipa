@@ -1,0 +1,25 @@
+{
+  "device": {
+    "model": "Xiaomi Pad 6",
+    "codename": "pipa",
+    "soc": "Qualcomm Snapdragon 870 / SM8250"
+  },
+  "official": {
+    "windows_arm64_iso": "https://www.microsoft.com/en-us/software-download/windows11arm64",
+    "android_platform_tools": "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
+    "xiaomi_specs_global": "https://www.mi.com/global/product/xiaomi-pad-6/specs/",
+    "xiaomi_specs_id": "https://www.mi.co.id/id/product/xiaomi-pad-6/specs"
+  },
+  "reference": {
+    "linux_pipa_dts": "https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/qcom/sm8250-xiaomi-pipa.dts",
+    "windows_arm_driver_faq": "https://support.microsoft.com/en-us/windows/windows-arm-based-pcs-faq-477f51df-2e3b-f68f-31b0-06f5e4f8ebb5",
+    "wddm_design": "https://learn.microsoft.com/en-us/windows-hardware/drivers/display/windows-vista-display-driver-model-design-guide",
+    "windows_camera_overview": "https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/camera-overview"
+  },
+  "local_inputs_not_committed": {
+    "uefi_image": "firmware/Mu-pipa.img",
+    "windows_iso": "C:/ISO/Win11_Arm64.iso",
+    "driver_pack": "drivers/vendor"
+  }
+}
+
