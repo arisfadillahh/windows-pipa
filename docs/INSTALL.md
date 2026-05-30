@@ -71,6 +71,36 @@ python .\scripts\Collect-PipaLinuxSsh.py --host 192.168.1.60 --user user
 
 ## 4. Apply Windows
 
+### Preferred current route: flash a prepared image
+
+For this specific tablet, pmOS is running from the `linux` partition we want to
+replace. The safer route is to build the Windows disk image on the PC first:
+
+```powershell
+.\scripts\Build-PipaWindowsImage.ps1 `
+  -WindowsIso "C:\ISO\Win11_Arm64.iso" `
+  -DiskSizeGB 80 `
+  -DriverPath ".\drivers\vendor"
+```
+
+This outputs:
+
+```text
+out\windows-image\pipa-windows-sparse.img
+```
+
+Then boot to fastboot and flash the payload:
+
+```powershell
+.\scripts\Flash-PipaWindowsPayload.ps1 `
+  -WindowsSparseImage ".\out\windows-image\pipa-windows-sparse.img" `
+  -UefiBootImage ".\firmware\Mu-pipa.img" `
+  -WindowsSlot b `
+  -AllowDestructive
+```
+
+### Alternate route: mounted partitions
+
 Dry run first:
 
 ```powershell

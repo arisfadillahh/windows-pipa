@@ -1,5 +1,6 @@
 out/
 captures/
+firmware/multiboot/
 tools/platform-tools/
 *.log
 *.tmp
