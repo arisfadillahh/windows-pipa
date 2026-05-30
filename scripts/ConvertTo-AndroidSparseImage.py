@@ -14,6 +14,21 @@ def is_all_zero(data: bytes) -> bool:
     return not data or data.count(0) == len(data)
 
 
+def sparse_header(block_size, total_blocks, total_chunks):
+    return struct.pack(
+        "<IHHHHIIII",
+        SPARSE_HEADER_MAGIC,
+        1,
+        0,
+        28,
+        12,
+        block_size,
+        total_blocks,
+        total_chunks,
+        0,
+    )
+
+
 def write_chunk(out_file, chunk_type, blocks, payload=b""):
     total_size = 12 + len(payload)
     out_file.write(struct.pack("<HHII", chunk_type, 0, blocks, total_size))
@@ -38,17 +53,19 @@ def main():
         raise SystemExit("input size after stripping must be positive")
 
     total_blocks = (input_size + args.block_size - 1) // args.block_size
-    chunks = []
+    chunk_count = 0
 
-    with open(args.input, "rb") as src:
+    with open(args.input, "rb") as src, open(args.output, "wb") as out_file:
+        out_file.write(sparse_header(args.block_size, total_blocks, 0))
         block_index = 0
         pending_raw = bytearray()
         pending_raw_blocks = 0
 
         def flush_raw():
-            nonlocal pending_raw, pending_raw_blocks
+            nonlocal pending_raw, pending_raw_blocks, chunk_count
             if pending_raw_blocks:
-                chunks.append((CHUNK_TYPE_RAW, pending_raw_blocks, bytes(pending_raw)))
+                write_chunk(out_file, CHUNK_TYPE_RAW, pending_raw_blocks, pending_raw)
+                chunk_count += 1
                 pending_raw = bytearray()
                 pending_raw_blocks = 0
 
@@ -77,7 +94,8 @@ def main():
                     dont_care_blocks += 1
                     block_index += 1
 
-                chunks.append((CHUNK_TYPE_DONT_CARE, dont_care_blocks, b""))
+                write_chunk(out_file, CHUNK_TYPE_DONT_CARE, dont_care_blocks)
+                chunk_count += 1
                 continue
 
             pending_raw.extend(data)
@@ -88,31 +106,15 @@ def main():
 
         flush_raw()
 
-    with open(args.output, "wb") as out_file:
-        out_file.write(
-            struct.pack(
-                "<IHHHHIIII",
-                SPARSE_HEADER_MAGIC,
-                1,
-                0,
-                28,
-                12,
-                args.block_size,
-                total_blocks,
-                len(chunks),
-                0,
-            )
-        )
-        for chunk_type, blocks, payload in chunks:
-            write_chunk(out_file, chunk_type, blocks, payload)
+        out_file.seek(0)
+        out_file.write(sparse_header(args.block_size, total_blocks, chunk_count))
 
     print(f"input_bytes={input_size}")
     print(f"total_blocks={total_blocks}")
-    print(f"chunks={len(chunks)}")
+    print(f"chunks={chunk_count}")
     print(f"output={args.output}")
     print(f"output_bytes={os.path.getsize(args.output)}")
 
 
 if __name__ == "__main__":
     main()
-
