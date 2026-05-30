@@ -80,21 +80,24 @@ replace. The safer route is to build the Windows disk image on the PC first:
 ```powershell
 .\scripts\Build-PipaWindowsImage.ps1 `
   -WindowsIso "D:\ISO\Win11_25H2_English_Arm64_v2.iso" `
-  -DiskSizeGB 80 `
-  -DriverPath ".\drivers\vendor"
+  -OutDir "D:\pipa-windows-build" `
+  -DiskSizeGB 64 `
+  -DriverPath ".\drivers\vendor" `
+  -CleanupIntermediates `
+  -Force
 ```
 
 This outputs:
 
 ```text
-out\windows-image\pipa-windows-sparse.img
+D:\pipa-windows-build\pipa-windows-sparse.img
 ```
 
 Then boot to fastboot and flash the payload:
 
 ```powershell
 .\scripts\Flash-PipaWindowsPayload.ps1 `
-  -WindowsSparseImage ".\out\windows-image\pipa-windows-sparse.img" `
+  -WindowsSparseImage "D:\pipa-windows-build\pipa-windows-sparse.img" `
   -UefiBootImage ".\firmware\pipa_dualrole.img" `
   -WindowsSlot b `
   -AllowDestructive

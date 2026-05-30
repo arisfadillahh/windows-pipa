@@ -38,6 +38,5 @@ After the ISO download, available local space is limited:
 - `C:` has about 4.9 GiB free.
 - `D:` has about 25 GiB free.
 
-The default PC-side image build route needs substantially more scratch space
-than this if it creates an 80 GiB fixed image. Either free more disk space or
-use a direct mounted-partition install route before flashing.
+Use `D:\pipa-windows-build` for the prepared-image route so large VHD/sparse
+outputs do not fill `C:`.

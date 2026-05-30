@@ -7,6 +7,7 @@ param(
     [int] $WindowsImageIndex = 1,
     [string] $DriverPath = '.\drivers\vendor',
     [switch] $SkipSparse,
+    [switch] $CleanupIntermediates,
     [switch] $Force
 )
 
@@ -25,7 +26,11 @@ if (-not (Test-Path -LiteralPath $WindowsIso)) {
 }
 
 $repoRoot = Get-RepoRoot
-$resolvedOutDir = Join-Path $repoRoot $OutDir
+if ([System.IO.Path]::IsPathRooted($OutDir)) {
+    $resolvedOutDir = [System.IO.Path]::GetFullPath($OutDir)
+} else {
+    $resolvedOutDir = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutDir))
+}
 New-Item -ItemType Directory -Force -Path $resolvedOutDir | Out-Null
 
 $vhdx = Join-Path $resolvedOutDir 'pipa-windows.vhdx'
@@ -133,18 +138,31 @@ try {
 Write-Step "Converting VHDX to fixed VHD"
 Convert-VHD -Path $vhdx -DestinationPath $vhd -VHDType Fixed
 
+if ($CleanupIntermediates) {
+    Write-Step "Removing intermediate VHDX"
+    Remove-Item -LiteralPath $vhdx -Force -ErrorAction SilentlyContinue
+}
+
 if (-not $SkipSparse) {
     Write-Step "Converting fixed VHD to Android sparse image"
     python (Join-Path $PSScriptRoot 'ConvertTo-AndroidSparseImage.py') `
         --input $vhd `
         --output $sparse `
         --strip-trailing-bytes 512
+
+    if ($CleanupIntermediates) {
+        Write-Step "Removing intermediate fixed VHD"
+        Remove-Item -LiteralPath $vhd -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Step "Build complete"
-Write-Host "VHDX: $vhdx"
-Write-Host "Fixed VHD: $vhd"
+if (Test-Path -LiteralPath $vhdx) {
+    Write-Host "VHDX: $vhdx"
+}
+if (Test-Path -LiteralPath $vhd) {
+    Write-Host "Fixed VHD: $vhd"
+}
 if (-not $SkipSparse) {
     Write-Host "Sparse flash image: $sparse"
 }
-
