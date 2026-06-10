@@ -111,3 +111,28 @@ This names the conflicting owner explicitly if any conflict remains after v25.
    than hanging in UEFI).
 4. GIO0 cleanup (dedupe 240, drop foreign QUP vectors, real qcgpio driver) — later,
    needed for touch GpioInt and keyboard interrupt line.
+
+## Results (2026-06-11, v25 flashed and verified)
+
+v25 booted normally (display fine — append-only SEC7 pattern holds). Live dump v2 confirms:
+
+- `ACPI\QCOM0511\2` (I2C2, keyboard bus): **Started / CM_PROB_NONE**, allocated
+  MEM `0x988000-0x98BFFF` + **IRQ 635**, qci2c RUNNING. Root cause fix confirmed.
+- `ACPI\QCOM050D\0` (GIO0): now **also Started / CM_PROB_NONE** — removing the
+  Exclusive-603 contender let its (still junk) boot config reserve successfully.
+  Still bound to GenPass, so no functional GPIO yet.
+- Only remaining problem device: `ACPI\QCOM050F\4` (SPI4 touch), Code 28 — no qcspi
+  driver installed. Expected.
+- WMI owner map: `0xF000000→GIO0`, `0x990000→SPI4`, `0x988000→I2C2`, `0x904000→QGP0`.
+- Kernel-PnP Configuration events preserved history: Code 12 (0xC0000018) events for
+  `ACPI\QCOM2511\2` and `ACPI\QCOM0511\4`, plus a GIO0 configuration with
+  **qcgpio8250 / oem4.inf matching `ACPI\QCOM250D`**. These instance IDs only existed
+  in the v18/v21/v24-era images — **proof those "stuck at Mu-Qcom" images actually
+  booted Windows with a dead display**. The SEC5(TCHMIN)-replacement repacks break
+  display handoff, not boot. This reframes the SPI4/GIO0 fix strategy.
+
+v25 (`pipa_muold_touchmin_v25-i2c2-irq635-local.img`) is the new known-good baseline.
+
+Next milestone: probe the Nanosic 803 (slave 0x4C on the now-working bus) for
+HID-over-I2C compliance (HID descriptor register) from Android root before authoring
+a HID child SSDT (would be an append-only SEC8, same proven pattern).

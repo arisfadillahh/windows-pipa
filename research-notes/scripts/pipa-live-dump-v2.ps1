@@ -83,9 +83,10 @@ try {
             $ant = "$($_.Antecedent)"
             $dep = "$($_.Dependent)"
             if ($ant -match "IRQNumber\s*=\s*(\d+)") {
+                $irq = [int]$Matches[1]
                 $devid = ""
                 if ($dep -match 'DeviceID\s*=\s*"([^"]+)"') { $devid = $Matches[1] }
-                $irqRows += [pscustomobject]@{ Irq = [int]$Matches[1]; Dev = $devid }
+                $irqRows += [pscustomobject]@{ Irq = $irq; Dev = $devid }
             }
         }
         $irqRows | Sort-Object Irq | ForEach-Object { Add-Line ("IRQ {0} -> {1}" -f $_.Irq, $_.Dev) }
