@@ -1,0 +1,37 @@
+# Generated artifacts
+*.img
+*.fd
+*.bin
+*.wim
+*.vhd
+*.vhdx
+*.iso
+*.esd
+*.cab
+*.zip
+*.7z
+*.log
+*.etl
+*.dmp
+*.evtx
+
+# Driver/vendor binaries
+*.sys
+*.dll
+*.cat
+*.cer
+
+# Raw dumps and local staging
+logs/
+driver-drop/
+external/
+extracted/
+fresh-payload/
+root-boot-images/
+.codex-remote-attachments/
+
+# Local/editor state
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

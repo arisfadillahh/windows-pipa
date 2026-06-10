@@ -27,6 +27,18 @@ Linux boot slot.
 - Documents the locally downloaded Microsoft Windows ARM64 ISO and pipa UEFI
   candidate in [docs/ARTIFACTS.md](docs/ARTIFACTS.md).
 
+## Public research notes
+
+The [`research-notes/`](research-notes/) folder contains sanitized public notes
+from later Xiaomi Pad 6 Windows on ARM bring-up sessions. It includes
+checkpoint documents, ACPI/UEFI repack helpers, and diagnostic scripts used to
+investigate Qualcomm PEP, GPI, SPI, I2C, GPIO, touch, and keyboard-cover
+bring-up.
+
+Those notes are published for reproducibility and community debugging. They do
+not include Windows images, Xiaomi firmware, Magisk-patched boot images,
+Qualcomm/Microsoft/Xiaomi driver binaries, raw private logs, or device backups.
+
 ## What is not solved yet
 
 - A proven modern Xiaomi Pad 6 Windows driver stack.
