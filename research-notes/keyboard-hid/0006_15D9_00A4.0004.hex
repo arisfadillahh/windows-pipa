@@ -1,0 +1,14 @@
+path=/sys/devices/0006:15D9:00A4.0004
+driver=/sys/bus/hid/drivers/hid-generic
+DRIVER=hid-generic
+HID_ID=0006:000015D9:000000A4
+HID_NAME=Xiaomi Consumer
+HID_PHYS=
+HID_UNIQ=
+MODALIAS=hid:b0006g0001v000015D9p000000A4
+modalias=hid:b0006g0001v000015D9p000000A4
+country=00
+
+ 05 0c 09 01 a1 01 85 06 15 00 26 80 03 19 00 2a
+ 80 03 75 10 95 01 81 00 c0
+

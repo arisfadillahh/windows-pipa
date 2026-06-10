@@ -16,3 +16,8 @@ __pycache__/
 *.pyc
 
 !.gitkeep
+kb-blobs/
+*.so
+keyboardnanoapp*
+libhidconverter*
+*Keyboard_Upgrade*
