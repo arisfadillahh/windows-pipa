@@ -44,12 +44,53 @@ as a `_CID` left the instance path unchanged, so the stale GenPass node kept win
 Build verification: confirmed via decompiled SEC5 that GIO0 is now `_HID QCOM250D` /
 `_CID QCOM050D`, and PEP0/QGP0/SPI4/NVTS are untouched.
 
-## Status / next session
+## v27 flash result (same day, later session)
 
-- v27 image built and staged on `D:\windows pipa\`. **Not yet flashed** (device handed back
-  to Android for use; flashing + boot verification deferred to next session).
-- Next: flash v27 to `boot_b`, boot Windows, run dump. Expect `ACPI\QCOM250D\0` Started with
-  `qcgpio8250` bound (real GPIO). Watch for: qcgpio failing on the junk GIO0 `_CRS`
-  (240×3 + foreign QUP vectors) — if so, the follow-up is a cleaned GIO0 `_CRS` (v28).
-- Rollback ladder if v27 misbehaves: v26 (display OK, GIO0=genpass) or v25 (baseline),
-  both on `D:`. Android slot A untouched throughout.
+v27 flashed and booted (display fine — third SEC5 regen in a row that boots).
+
+- The `_HID` trick worked exactly as designed: fresh instance `ACPI\QCOM250D\0` exists,
+  old `ACPI\QCOM050D\0` is a Disconnected phantom, GenPass can no longer match.
+- All of GIO0's boot-config resources reserved cleanly (240×3, 556, 578, 590, 601, 603 +
+  MEM 0xF000000) — no more 0xC0000018 anywhere. I2C2 still Started on IRQ 635.
+- BUT the new instance is **Code 28** with Kernel-PnP `id=400 ... Driver Name: null` —
+  no driver in the store matches at all.
+
+Root cause found in old session logs: a 2026-06-09 cleanup ran
+`pnputil /delete-driver oem4.inf /uninstall` and removed the **qcgpio8250** package from
+the driver store (it was deleted to de-escalate the Code-12 churn era — a reason that the
+IRQ fixes have since made obsolete). The same logs show that when qcgpio8250 was installed
+back then, the **service loaded and ran without any BSOD** — the devnode only failed on
+the (now-fixed) resource conflict. So reinstalling is low-risk.
+
+The original driver package still exists on the Windows partition:
+`C:\woa\qcgpio250d\driver\` (qcgpio8250.inf + qcgpio.sys + qcgpio.cat).
+
+**Staged fix (no reflash needed — boot_b already holds v27):** `C:\woa\fix-gpio.cmd`
+self-elevates and runs `pnputil /add-driver ... /install` against the waiting
+`ACPI\QCOM250D\0`, rescans, then runs the standard dump. One UAC click.
+
+## v28 contingency (built, not flashed): clean GIO0 _CRS
+
+Decoding the raw `_CRS` buffer in stock TouchMin GIO0 revealed a second latent bug:
+the memory descriptor is `0x0F000000 + 0x01000000` — but kona TLMM lives at
+**`0x0F100000 + 0x300000`**. If qcgpio treats the resource base as the TLMM base
+(the Qualcomm convention — cf. the 8150 reference DSDT using the exact TLMM base
+`0x03100000 + 0x300000`), every register access would be off by 1 MB. The junk
+interrupt tail (578 L/S, 603 Edge/S, 601 L/S, 556 + 590 Edge/Exclusive) also remains.
+
+`pipa_muold_touchmin_v28-gio0-cleancrs-irq635-local.img` (staged on `D:`, verified by
+decompile) fixes both: GIO0 `_CRS` = `Memory32Fixed(0x0F100000, 0x300000)` + summary
+IRQ 240 ×3 Level/Shared only; identity stays `_HID QCOM250D`; OFNI (180 pins) intact;
+everything else identical to v27.
+
+## Next session decision tree
+
+1. Read the fix-gpio dump from the v27 boot (if the user ran it):
+   - qcgpio bound + **Started** → GPIO controller up; validate, then consider v28 anyway
+     for the correct TLMM base before trusting actual GPIO I/O (keyboard GPIO 100 /
+     touch GpioInt 39).
+   - qcgpio bound + **Code 10/12** or misbehaving → flash v28 (driver will re-bind to the
+     same `ACPI\QCOM250D\0` instance) and retest.
+   - BSOD/bootloop → boot Android, remove the driver offline
+     (`dism /Image:<mounted WINPIPA> /Remove-Driver`), rollback boot_b to v26/v25.
+2. Rollback ladder unchanged: v27 → v26 → v25 → v19, all on `D:`. Android slot A untouched.
