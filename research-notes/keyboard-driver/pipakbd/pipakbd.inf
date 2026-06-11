@@ -1,0 +1,54 @@
+; pipakbd.inf - Xiaomi pipa magnetic keyboard (Nanosic 803) HID-over-I2C via VHF.
+; Binds the ACPI child node added under \_SB.I2C2 (see NanoKbdSSDT.asl): _HID NANO0803.
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
+Provider    = %ProviderName%
+CatalogFile = pipakbd.cat
+DriverVer   = 06/12/2026,1.0.0.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+pipakbd.sys = 1
+
+[Manufacturer]
+%ProviderName% = Standard,NTARM64.10.0...22000
+
+[Standard.NTARM64.10.0...22000]
+%pipakbd.DeviceDesc% = pipakbd_Device, ACPI\NANO0803
+
+[pipakbd_Device.NT]
+CopyFiles = pipakbd_CopyFiles
+
+[pipakbd_CopyFiles]
+pipakbd.sys
+
+[pipakbd_Device.NT.Services]
+AddService = pipakbd, %SPSVCINST_ASSOCSERVICE%, pipakbd_Service
+
+[pipakbd_Service]
+DisplayName   = %pipakbd.SvcDesc%
+ServiceType   = 1 ; SERVICE_KERNEL_DRIVER
+StartType     = 3 ; SERVICE_DEMAND_START
+ErrorControl  = 1 ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\pipakbd.sys
+; NOTE: no PoFx perf-state involvement -> not subject to the qcpep wall that blocks qcspi.
+
+[pipakbd_Device.NT.Wdf]
+KmdfService = pipakbd, pipakbd_wdfsect
+[pipakbd_wdfsect]
+KmdfLibraryVersion = 1.33
+
+[Strings]
+ProviderName        = "pipa-woa"
+DiskName            = "pipakbd Installation Disk"
+pipakbd.DeviceDesc  = "Xiaomi Pad 6 Keyboard (Nanosic 803)"
+pipakbd.SvcDesc     = "pipa Nanosic keyboard HID driver"
+SPSVCINST_ASSOCSERVICE = 0x00000002
