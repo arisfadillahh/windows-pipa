@@ -91,3 +91,42 @@ The I2C2 bus fix (v25) was the right and necessary first step, but the keyboard 
 finished with ACPI alone — it needs a custom HID driver. The probe's value: it eliminated
 a dead-end build and captured the complete blueprint (descriptors + pin map + protocol
 source) for the real path.
+
+## Driver-source homework (2026-06-11, no-device): the build is now de-risked
+
+Two findings sharpen the layering and remove the biggest unknown:
+
+1. **`libhidconverter.so` is HID-mapping only, not the chip protocol.** Its exports take
+   *already-parsed* input — `GenerateHIDKeyboardData(mods, vector<KEYCODE_string>, report)`,
+   `GenerateHIDMouseData(buttons, dx, dy, wheel, report)`,
+   `GenerateHIDTouchPadData(...)` — and look each Android `KEYCODE_*` up in a
+   `std::map<string, HID_USAGE_ID>` (119 KEYCODE tokens extracted). So this layer is trivially
+   re-derivable from the report descriptors we already captured; it is **not** where the
+   Nanosic frame protocol lives.
+
+2. **The frame protocol is open-source GPL kernel code.** The chip's 16-byte I2C frame
+   protocol (the `32004F31…` command / `570F39…` response seen in dmesg) is implemented in
+   Xiaomi's published pipa kernel:
+   `MiCode/Xiaomi_Kernel_OpenSource`, branch **`pipa-t-oss`**,
+   `drivers/input/keyboard/nanosic_driver/` (and `nanosic_driver_v2/`):
+   - `nano_i2c.c` — I2C read/write framing (the protocol to port)
+   - `nano_macro.h` — opcodes / frame constants
+   - `nano_input.c` / `nano_input.h` — frame → input-event decode
+   - `nano_gpio.c` — the GPIO 100 attention-IRQ + reset/power line handling
+   - `nano_chardev.c` — the `/dev/nanodev0` interface the HAL reads
+   This is readable, license-clear reference — the Windows driver can mirror its framing
+   logic directly rather than black-box reverse-engineering the binary.
+
+### Windows driver shape (now fully specified)
+
+- **SpbCx I2C target** on `\_SB.I2C2` (✅ bus up, IRQ 635), slave `0x4C`.
+- **GpioInt** on `\_SB.GIO0` (✅ GpioClx up), TLMM GPIO **100** = attention line; plus
+  reset/vdd/sleep GPIOs (141 / 127 / 155) toggled per `nano_gpio.c`.
+- **Frame engine** ported from `nano_i2c.c` + `nano_macro.h`.
+- **Microsoft VHF** presenting the 4 captured collections (keyboard / mouse / touchpad /
+  consumer) using the exact report descriptors in `research-notes/keyboard-hid/`.
+- Packaged as a KMDF driver; needs an EWDK/WDK build environment and on-device iteration.
+  No PoFx perf-states involved, so it is **not** subject to the qcpep wall that blocks touch.
+
+This is the recommended next milestone (touch is parked behind platform power). Remaining
+prerequisite to start coding: a Windows driver toolchain (EWDK or WDK + VS).
