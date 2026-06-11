@@ -62,3 +62,48 @@ GIO0 cleanup (TLMM `0x0F100000+0x300000`, summary IRQ 240×3) is carried over. N
 
 - Built & staged on `D:\windows pipa`: v28 (GPIO clean) and v29 (GPIO clean + touch prep).
   **Nothing flashed this session**; boot_b remains v27. Device parked in Android slot A.
+
+## UPDATE (same day, later): qcspi retried on v29 — crashes even without _DEP
+
+Sequence: v29 flashed (checkpoint dump clean: GIO0 Started on the exact TLMM base with
+junk vectors gone, I2C2 635, SPI4 ready at IRQ 637 with no `_DEP`), then
+`fix-spi.cmd` ran `pnputil /add-driver qcspi8250.inf /install` → **immediate restart at
+the install/start moment**. The fix-spi log ends exactly at the add-driver step. The
+install transaction rolled back (no `qcspi` service exists afterwards). No new minidump
+was written (the only dump on disk is byte-identical to the 2026-06-05 one — same
+`0xA0 / 0xAA64, 0x8003, 0x84000013` signature).
+
+So the PEP `_DEP` removal was **not sufficient**. Binary analysis of `qcspi8250.sys`
+pins the failure path:
+
+- it does **not** import `KeBugCheckEx` — something else raises the bugcheck;
+- it **does** import `PoFxRegisterComponentPerfStates`,
+  `PoFxIssueComponentPerfStateChange`, `PoFxQueryCurrentComponentPerfState` —
+  i.e. qcspi votes SE **clock/performance states through PoFx**, which forwards to the
+  platform PEP = **qcpep.sys** (running on this system since the v19 baseline).
+
+Working theory (sharp): qcspi's perf-state registration reaches qcpep, which cannot
+satisfy the SPI SE clock domain on this half-configured platform and raises
+`INTERNAL_POWER_ERROR` itself (0xAA64 param style = vendor bugcheck). qci2c survives
+because it (presumably — to verify via its binary) never registers perf states.
+
+INF side-by-side (qcspi vs qci2c) showed no smoking config difference: both FIFO OpMode,
+both DEMAND_START, both SpbCx-dependent; qci2c also carries wrong-looking
+`QUPType=QUP_0` for our QUP1 SE yet works — so the per-instance QUP config is likely
+unused in FIFO mode and not the differentiator.
+
+**v30 rescue worked exactly as designed**: flashed after the crash, Windows boots, all
+of GIO0/I2C2/QGP0/PEP0 healthy, SPI4 a Disconnected phantom, qcspi service absent.
+v30 is the current stable baseline with GPIO + I2C up.
+
+### Candidate next steps for touch
+
+1. (zero-risk homework) Pull `qci2c8250.sys` and diff its PoFx imports to confirm the
+   perf-state theory; study the nabu (Mi Pad 5) WOA pack — same qcspi family works there
+   on top of a fully configured PEP stack — to see what PEP/clock support SPI needs.
+2. (cheap discriminator, reversible) Disable the `qcpep` service on a test boot, flash
+   v29, retry qcspi: if it then starts (or fails with a polite Code 10 instead of
+   bugchecking), qcpep is confirmed as the crashing component. Needs care — qcpep has
+   been running since v19 and its absence may change idle/power behaviour.
+3. (heavy) Bring up a real PEP configuration for the SE clock domains (nabu-style) —
+   the "proper" fix, but firmly in the dangerous power-class territory.
