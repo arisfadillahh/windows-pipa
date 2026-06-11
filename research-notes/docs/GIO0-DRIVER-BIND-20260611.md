@@ -83,6 +83,25 @@ decompile) fixes both: GIO0 `_CRS` = `Memory32Fixed(0x0F100000, 0x300000)` + sum
 IRQ 240 ×3 Level/Shared only; identity stays `_HID QCOM250D`; OFNI (180 pins) intact;
 everything else identical to v27.
 
+## RESULT (2026-06-11, fix-gpio executed on the v27 boot): SUCCESS
+
+- `pnputil /add-driver qcgpio8250.inf /install` → package added (oem4.inf), installed on
+  `ACPI\QCOM250D\0`; Kernel-PnP `id=410` **"Device ACPI\QCOM250D\0 was started"**.
+- `qcgpio` service **RUNNING**; system stable (full dump ran afterwards, no BSOD/bootloop).
+- Arbiter now shows **virtual GPIO interrupts (GSIV 2400+)** allocated — evidence the
+  driver completed **GpioClx registration**, not just a devnode start.
+- Remaining problem device: only SPI4 (Code 28, qcspi not installed — next milestone).
+
+Device scoreboard: **GIO0 ✅ I2C2 ✅ QGP0 ✅ PEP0 ✅ — SPI4 (touch) is the last one.**
+
+Caution learned: qcgpio started fine **with the junk `_CRS`** (MEM base `0xF000000`).
+The v28/v29 change to the exact TLMM base (`0xF100000`) is now itself the variable to
+watch — if the driver internally compensates for the legacy base, "fixing" it could
+break a working controller. Functional validation (do pin interrupts actually fire?)
+only comes with the first GpioInt consumer (touch). Flash v29, verify GIO0 still
+Started, and treat any regression as evidence to revert the base while keeping the
+junk-vector cleanup.
+
 ## Next session decision tree
 
 1. Read the fix-gpio dump from the v27 boot (if the user ran it):
