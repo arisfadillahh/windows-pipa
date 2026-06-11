@@ -96,7 +96,50 @@ unused in FIFO mode and not the differentiator.
 of GIO0/I2C2/QGP0/PEP0 healthy, SPI4 a Disconnected phantom, qcspi service absent.
 v30 is the current stable baseline with GPIO + I2C up.
 
-### Candidate next steps for touch
+### Binary homework verdict (no-device session): touch is platform-power-blocked
+
+Confirmed by reading the binaries directly:
+
+| driver | PoFx perf-state imports | works on pipa? |
+|---|---|---|
+| `qci2c_i.sys` (pipa, from stable checkpoint) | **none** — only `PoRegisterPowerSettingCallback` | ✅ Started |
+| `qcgpio8250.sys` | none relevant | ✅ Started |
+| `qcspi8250.sys` (pipa attempt) | `PoFxRegisterComponentPerfStates` + Issue + Query | ✗ 0xA0 |
+| `qcspi8150.sys` (nabu) | **same 3 PoFx perf-state imports** | (works on nabu only) |
+
+Two things are now certain:
+
+1. **The crash mechanism is qcspi's unconditional PoFx perf-state registration.** qci2c and
+   qcgpio never call it, which is exactly why they start on pipa's minimal ACPI; qcspi always
+   calls it and there is **no registry/INF/ACPI knob in the binary to gate it** (the only
+   power strings in qcspi8250.sys are those 3 imports — nothing to disable them).
+2. **Swapping qcspi binaries does not help** — nabu's 8150 build registers the same perf
+   states. nabu succeeds because nabu boots the *complete Qualcomm OEM ACPI + PEP stack*
+   (`PLATFORM.SOC_QC8150.BASE` ships `qcpep8150.sys`, `qcpepextension8150.inf` binding
+   `ACPI\VEN_QCOM&DEV_0519` and adding a PPM software component, plus full clock/PEP device
+   data). pipa runs the Mu-Qcom **minimal** DSDT + the TouchMin SSDT, which has none of that
+   device-specific PEP/clock data, so qcpep can't satisfy qcspi's perf-state negotiation and
+   the power manager bugchecks `0xA0`.
+
+**Conclusion: SPI touch is blocked behind real platform power management, not behind an ACPI
+resource tweak.** Unblocking it means giving qcpep the SE clock/PEP data — i.e. authoring
+proper pipa platform ACPI/PEP config (the muold base deliberately omits it) or porting
+nabu's PEP stack. That is firmly in the dangerous power-driver class (the project's
+qcpmic/qcpep/qcpil guardrail) and is a heavy, multi-step effort with genuine bugcheck risk.
+
+### Strategic pivot recommendation
+
+The two milestones finished this stretch — **I2C2 (keyboard bus, IRQ 635)** and **GIO0
+(GPIO controller, qcgpio + GpioClx)** — are exactly the two prerequisites the **keyboard**
+needs, and neither the keyboard bus nor the GPIO line touches PoFx perf-states. The
+**keyboard (Nanosic 803) custom driver is therefore fully unblocked**, while touch is not.
+Recommended next milestone: build the SpbCx (I2C) + VHF keyboard driver per
+[KEYBOARD-NANOSIC-ARCH-20260611.md](KEYBOARD-NANOSIC-ARCH-20260611.md) (report descriptors,
+GPIO 100 IRQ line, and the libhidconverter frame protocol are already captured) — a
+PC-side development effort that needs no risky flashing. Park touch until someone is ready
+to take on pipa platform-power ACPI.
+
+### Candidate next steps for touch (deferred / heavy)
 
 1. (zero-risk homework) Pull `qci2c8250.sys` and diff its PoFx imports to confirm the
    perf-state theory; study the nabu (Mi Pad 5) WOA pack — same qcspi family works there
