@@ -1,0 +1,64 @@
+# pipa touch prep — old qcspi bootloop root-caused, v29 staged (2026-06-11)
+
+No-flash research session. Goal: clear the path for the SPI4/NT36532 touch milestone by
+explaining the historical qcspi disaster and pre-building the corrected ACPI.
+
+## The 2026-06-05 qcspi crash, decoded
+
+The workspace kept a minidump from the qcspi attempt (`qcspi-v10-pepdep-after-crash-dump`):
+
+- **BugCheck `0xA0` INTERNAL_POWER_ERROR**, params `0xAA64 / 0x8003 / 0x84000013 / -1`
+  (parsed straight from the `PAGEDU64` dump header; build 26100).
+- System.evtx from the same dump shows **Kernel-Power 41 dirty reboots every ~7 seconds**
+  — a hard bootloop, matching the "qcspi caused BSOD/bootloop" project lore.
+
+### Root-cause hypothesis (strong, with a clean A/B in our own data)
+
+The image that crashed was the "**pepdep**" variant: `SPI4` declared
+`_DEP (PEP0, QGP0)`. PEP0 is `QCOM0519/_CID PNP0D80` — the Windows SoC PEP framework
+device — but on pipa it raw-starts with no functional PEP behavior behind it for these
+nodes. A PoFx-integrated bus driver (qcspi) starting on a device with a PEP `_DEP` engages
+the power framework path → `INTERNAL_POWER_ERROR` → bootloop (driver is BOOT_START-ish,
+so every boot crashed until the package was removed).
+
+The A/B inside this very project: **`I2C2` is declared with NO `_DEP` ("nodep" — it's in
+v19's name) and qci2c runs flawlessly** on the same image family. QGP0 (no `_DEP`) +
+qcgpi: also fine. The only QUP client that ever had a PEP `_DEP` is the only one that
+bootlooped.
+
+## v29 staged: `pipa_muold_touchmin_v29-touchprep-nodep-irq637-local.img`
+
+Built on top of v28 (clean GIO0 `_CRS` + `QCOM250D` identity + I2C2 IRQ 635), adding two
+SPI4 changes — both **inert until a qcspi driver is actually installed** (SPI4 is Code 28
+today), so flashing v29 later still tests only one active component (GPIO):
+
+1. **`_DEP (PEP0, QGP0)` removed** from SPI4 — same recipe that makes qci2c work.
+2. **IRQ 605 → 637** (`0x27D`): the same raw-DT-hwirq vs GSIV(+32) bug we fixed for I2C2;
+   `spi@990000` is GIC SPI 605 in the Android DT → Windows wants 637.
+
+Verified by decompiling the built SEC5: SPI4 has no `_DEP`, IRQ `0x0000027D`, and the v28
+GIO0 cleanup (TLMM `0x0F100000+0x300000`, summary IRQ 240×3) is carried over. NVTS child
+(SpiSerialBus + GpioInt 39 on `\_SB.GIO0`) untouched.
+
+## Remaining pieces for the touch milestone (next sessions)
+
+1. **GPIO first**: run the staged `C:\woa\fix-gpio.cmd` on the v27/v28 boot so qcgpio8250
+   binds to `ACPI\QCOM250D\0`. Touch's GpioInt 39 resolves against GIO0 — no working
+   GpioClx, no touch interrupt.
+2. **qcspi package**: not present on `D:`; expected on the Windows partition (to be
+   located next time F: is exposed). Retry only on a v29 boot (nodep + correct IRQ), with
+   the rollback guard: offline `dism /Remove-Driver` + boot_b rollback ladder
+   (v27→v26→v25 on `D:`).
+3. **NT36532 function driver**: the Xiaomi Pad 5 (nabu) WOA stack has working Novatek SPI
+   touch; its public driver pack is the donor candidate:
+   - https://github.com/map220v/MiPad5-Drivers (Windows driver pack, nabu)
+   - https://github.com/woa-msmnile/Nabu (Project-Aloha drivers submodule)
+   - https://github.com/Rasenkai/caf-tsoft-Novatek-nt36xxx (kernel-side NT36xxx reference)
+   pipa's panel is NT36532 (per Android `NVT-ts-spi`); the nabu driver's supported HIDs
+   and SPI parameters need comparing against our `NVTS` child (`_HID NVT36532`,
+   SpiSerialBus 8.39 MHz mode-0 CS0, GpioInt 39).
+
+## Status
+
+- Built & staged on `D:\windows pipa`: v28 (GPIO clean) and v29 (GPIO clean + touch prep).
+  **Nothing flashed this session**; boot_b remains v27. Device parked in Android slot A.
