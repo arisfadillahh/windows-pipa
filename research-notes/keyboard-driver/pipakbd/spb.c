@@ -38,14 +38,35 @@ PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Fra
 }
 
 NTSTATUS
-PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx)
+PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG OkCount)
 {
     NTSTATUS last = STATUS_SUCCESS;
+    ULONG ok = 0;
     for (ULONG i = 0; i < RTL_NUMBER_OF(g_EnableSeq); i++) {
         NTSTATUS s = PipaKbd_SpbWriteFrame(Ctx, g_EnableSeq[i], 15);
-        if (!NT_SUCCESS(s)) last = s;
+        if (NT_SUCCESS(s)) ok++; else last = s;
         LARGE_INTEGER dt; dt.QuadPart = -(5 * 10 * 1000); // 5 ms between frames
         KeDelayExecutionThread(KernelMode, FALSE, &dt);
     }
+    *OkCount = ok;
     return last;
+}
+
+// Diagnostic one-shot read: select 0x4C, read 68 bytes into Ctx->ReadBuffer.
+NTSTATUS
+PipaKbd_SpbReadOnce(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG_PTR Got)
+{
+    NTSTATUS status;
+    WDF_MEMORY_DESCRIPTOR wDesc, rDesc;
+    UCHAR addr = NANO_IADDR;
+    *Got = 0;
+    if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
+
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&wDesc, &addr, sizeof(addr));
+    status = WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &wDesc, NULL, NULL, NULL);
+    if (!NT_SUCCESS(status)) return status;
+
+    RtlZeroMemory(Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&rDesc, Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
+    return WdfIoTargetSendReadSynchronously(Ctx->SpbTarget, NULL, &rDesc, NULL, NULL, Got);
 }

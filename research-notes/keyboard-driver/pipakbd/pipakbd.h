@@ -31,10 +31,13 @@
 #define NANO_IADDR              0x4C
 #define NANO_FRAME_BYTES        66          // I2C_DATA_LENGTH_WRITE command payload
 
+#define NANO_READ_LEN   68
+
 typedef struct _DEVICE_CONTEXT {
     WDFDEVICE       Device;
     WDFIOTARGET     SpbTarget;
     LARGE_INTEGER   SpbConnectionId;
+    UCHAR           ReadBuffer[NANO_READ_LEN];
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, GetDeviceContext)
@@ -46,4 +49,5 @@ EVT_WDF_DEVICE_D0_ENTRY          PipaKbdEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT           PipaKbdEvtD0Exit;
 
 NTSTATUS PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Frame, _In_ ULONG Len);
-NTSTATUS PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx);
+NTSTATUS PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG OkCount);
+NTSTATUS PipaKbd_SpbReadOnce(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG_PTR Got);

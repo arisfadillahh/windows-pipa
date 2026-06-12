@@ -55,7 +55,22 @@ PipaKbdEvtD0Entry(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE PreviousSta
     ctx->SpbTarget = target;
 
     // The whole point: unlock the keyboard. Non-fatal if a frame NAKs (chip may already be up).
-    (VOID) PipaKbd_SendEnableSequence(ctx);
+    ULONG okCount = 0;
+    NTSTATUS enStatus = PipaKbd_SendEnableSequence(ctx, &okCount);
+
+    // Diagnostic read-back: prove the I2C round-trip works (head byte 0x57 = chip responding).
+    ULONG_PTR got = 0;
+    NTSTATUS rdStatus = PipaKbd_SpbReadOnce(ctx, &got);
+    ULONG rdHead = ((ULONG)ctx->ReadBuffer[0]) | ((ULONG)ctx->ReadBuffer[1] << 8) |
+                   ((ULONG)ctx->ReadBuffer[2] << 16) | ((ULONG)ctx->ReadBuffer[3] << 24);
+    ULONG gotL = (ULONG)got;
+
+    // Surface results to HKLM\SYSTEM\CurrentControlSet\Services\pipakbd for the install dump.
+    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"EnableOk", REG_DWORD, &okCount, sizeof(ULONG));
+    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"EnableStatus", REG_DWORD, &enStatus, sizeof(ULONG));
+    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"ReadStatus", REG_DWORD, &rdStatus, sizeof(ULONG));
+    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"ReadBytes", REG_DWORD, &gotL, sizeof(ULONG));
+    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"ReadHead", REG_DWORD, &rdHead, sizeof(ULONG));
     return STATUS_SUCCESS;
 }
 

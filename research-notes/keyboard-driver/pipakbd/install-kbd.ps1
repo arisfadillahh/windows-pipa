@@ -37,6 +37,19 @@ sc.exe query pipakbd 2>&1 | Add-Content $log
 "== USB/HID input devices ==" | Add-Content $log
 Get-PnpDevice -PresentOnly 2>&1 | Where-Object { $_.InstanceId -match 'VID_258A|NANO0803|HID' } | Format-Table -AutoSize Status,FriendlyName,InstanceId | Out-String -Width 220 | Add-Content $log
 
+# Driver self-diagnostics (written by pipakbd at D0Entry; populated AFTER the reboot when the
+# driver actually loads). EnableOk = #frames that wrote OK (target 12); ReadHead 0x..57 = chip
+# responded to a read (I2C round-trip works).
+"== pipakbd I2C diagnostics ==" | Add-Content $log
+$dk = "HKLM:\SYSTEM\CurrentControlSet\Services\pipakbd"
+$d = Get-ItemProperty $dk -ErrorAction SilentlyContinue
+if ($d) {
+    "EnableOk     = $($d.EnableOk) / 12 frames" | Add-Content $log
+    "EnableStatus = 0x$('{0:X8}' -f [int]$d.EnableStatus)" | Add-Content $log
+    "ReadStatus   = 0x$('{0:X8}' -f [int]$d.ReadStatus)  ReadBytes=$($d.ReadBytes)" | Add-Content $log
+    "ReadHead     = 0x$('{0:X8}' -f [int]$d.ReadHead)  (low byte 0x57 = chip responding)" | Add-Content $log
+} else { "(no diag yet - run this again AFTER the reboot so the driver has loaded)" | Add-Content $log }
+
 Add-Content $log ""
-Add-Content $log "NEXT: restart Windows once, then attach the keyboard and type."
+Add-Content $log "STEP: 1) jalanin ini, 2) RESTART Windows, 3) jalanin ini LAGI, 4) baca bagian diagnostics ini ke agent."
 Start-Process notepad.exe $log
