@@ -13,7 +13,7 @@ PipaKbd_VhfCreate(_In_ PDEVICE_CONTEXT Ctx)
 
     VHF_CONFIG_INIT(&cfg,
                     WdfDeviceWdmGetDeviceObject(Ctx->Device),
-                    sizeof(g_PipaKbdReportDescriptor),
+                    (USHORT)sizeof(g_PipaKbdReportDescriptor),
                     (PUCHAR)g_PipaKbdReportDescriptor);
 
     // Identify as the Xiaomi keyboard so existing per-VID quirks/PnP behave consistently.

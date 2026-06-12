@@ -27,8 +27,10 @@
       <PreprocessorDefinitions>_KERNEL_MODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <!-- vhfkm.lib = Virtual HID Framework (kernel) import library, shipped in the WDK -->
-      <AdditionalDependencies>$(DDK_LIB_PATH)spbcx.lib;$(DDK_LIB_PATH)vhfkm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- spbcx.lib (SpbCx I2C client) + vhfkm.lib (Virtual HID Framework, kernel).
+           Both live on the WDK lib path provided by the WDK NuGet props; KMDF entry libs
+           (WdfDriverEntry/WdfLdr) are added automatically by the KMDF toolset. -->
+      <AdditionalDependencies>spbcx.lib;vhfkm.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Inf>
       <SpecifyArchitecture>true</SpecifyArchitecture>

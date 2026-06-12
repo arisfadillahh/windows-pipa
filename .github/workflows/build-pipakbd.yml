@@ -1,0 +1,59 @@
+name: build-pipakbd
+
+# Builds the ARM64 KMDF keyboard driver in the cloud (no local WDK needed) using the
+# WDK NuGet packages, and publishes the build log + pipakbd.sys as a GitHub Release so
+# the result is downloadable without auth. Triggered on changes to the driver tree.
+on:
+  push:
+    paths:
+      - 'research-notes/keyboard-driver/**'
+      - '.github/workflows/build-pipakbd.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # create releases
+
+jobs:
+  build:
+    runs-on: windows-2025
+    env:
+      PROJ_DIR: research-notes/keyboard-driver/pipakbd
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
+
+      - name: Restore WDK NuGet packages
+        working-directory: ${{ env.PROJ_DIR }}
+        run: nuget restore packages.config -PackagesDirectory packages
+
+      - name: Build (ARM64 Release)
+        working-directory: ${{ env.PROJ_DIR }}
+        continue-on-error: true
+        run: |
+          msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log
+          "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
+
+      - name: Gather outputs
+        if: always()
+        working-directory: ${{ env.PROJ_DIR }}
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item build.log,build.binlog out/ -ErrorAction SilentlyContinue
+          Get-ChildItem -Recurse -Include pipakbd.sys,pipakbd.inf,pipakbd.cat -ErrorAction SilentlyContinue |
+            ForEach-Object { Copy-Item $_.FullName out/ -Force -ErrorAction SilentlyContinue }
+          "--- artifacts ---" | Tee-Object -FilePath out/build.log -Append
+          Get-ChildItem out | Select-Object Name,Length | Out-String | Tee-Object -FilePath out/build.log -Append
+
+      - name: Publish results as a Release
+        if: always()
+        working-directory: ${{ env.PROJ_DIR }}
+        run: |
+          $tag = "ci-$env:GITHUB_RUN_NUMBER"
+          gh release create $tag --repo $env:GITHUB_REPOSITORY --title "pipakbd CI $env:GITHUB_RUN_NUMBER" --notes "Automated driver build (commit $env:GITHUB_SHA)." --target $env:GITHUB_SHA
+          Get-ChildItem out | ForEach-Object { gh release upload $tag $_.FullName --repo $env:GITHUB_REPOSITORY --clobber }
