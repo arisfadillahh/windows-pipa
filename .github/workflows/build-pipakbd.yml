@@ -77,14 +77,30 @@ jobs:
           msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ExtraLibDir="$extra" /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
           "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
 
-      - name: Gather outputs
+      - name: Package, catalog, and test-sign
         if: always()
         working-directory: ${{ env.PROJ_DIR }}
         run: |
           New-Item -ItemType Directory -Force out | Out-Null
           Copy-Item build.log,build.binlog out/ -ErrorAction SilentlyContinue
-          Get-ChildItem -Recurse -Include pipakbd.sys,pipakbd.inf,pipakbd.cat -ErrorAction SilentlyContinue |
-            ForEach-Object { Copy-Item $_.FullName out/ -Force -ErrorAction SilentlyContinue }
+          $rel = "ARM64\Release"
+          $sys = Get-ChildItem $rel -Filter pipakbd.sys -ErrorAction SilentlyContinue | Select-Object -First 1
+          $inf = Get-ChildItem $rel -Filter pipakbd.inf -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $inf) { $inf = Get-Item pipakbd.inf }
+          if ($sys) {
+            Copy-Item $sys.FullName out\pipakbd.sys -Force
+            Copy-Item $inf.FullName out\pipakbd.inf -Force
+            # 1) test cert  2) sign .sys  3) catalog (hashes the signed .sys+.inf)  4) sign .cat
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=pipa-woa-test" -CertStoreLocation Cert:\CurrentUser\My -KeyUsage DigitalSignature -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+            Set-AuthenticodeSignature -FilePath out\pipakbd.sys -Certificate $cert -HashAlgorithm SHA256 | Out-Null
+            New-FileCatalog -Path out -CatalogFilePath "$env:RUNNER_TEMP\pipakbd.cat" -CatalogVersion 2 | Out-Null
+            Copy-Item "$env:RUNNER_TEMP\pipakbd.cat" out\pipakbd.cat -Force
+            Set-AuthenticodeSignature -FilePath out\pipakbd.cat -Certificate $cert -HashAlgorithm SHA256 | Out-Null
+            Export-Certificate -Cert $cert -FilePath out\pipakbd-testcert.cer | Out-Null
+            "SIGNED: $((Get-AuthenticodeSignature out\pipakbd.sys).Status); cat: $((Get-AuthenticodeSignature out\pipakbd.cat).Status)" | Tee-Object -FilePath out/build.log -Append
+          } else {
+            "no pipakbd.sys produced" | Tee-Object -FilePath out/build.log -Append
+          }
           "--- artifacts ---" | Tee-Object -FilePath out/build.log -Append
           Get-ChildItem out | Select-Object Name,Length | Out-String | Tee-Object -FilePath out/build.log -Append
 
