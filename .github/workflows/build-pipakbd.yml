@@ -48,6 +48,9 @@ jobs:
             Copy-Item "$($x64Stamp.Directory.FullName)\*" $armStamp.Directory.FullName -Recurse -Force -ErrorAction SilentlyContinue
             "overlaid x64 host tools onto ARM64 bin" | Tee-Object -FilePath build.log -Append
           } else { "WARN: could not locate both stampinf bins" | Tee-Object -FilePath build.log -Append }
+          # The StampInf MSBuild task resolves the tool via PATH; put the x64 host bin first so
+          # bare-name 'stampinf.exe' (and inf2cat) resolve to runnable x64 executables.
+          if ($x64Stamp) { $env:PATH = "$($x64Stamp.Directory.FullName);$env:PATH" }
           msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
           "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
 
