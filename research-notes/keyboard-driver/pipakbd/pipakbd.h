@@ -3,11 +3,31 @@
 
 #include <ntddk.h>
 #include <wdf.h>
-#include <reshub.h>     // RESOURCE_HUB_CREATE_PATH_FROM_ID, RESOURCE_HUB_PATH_SIZE
+#include <ntstrsafe.h>  // RtlStringCchPrintfW (resource-hub path)
+#include <reshub.h>     // RESOURCE_HUB_PATH_SIZE, RESOURCE_HUB_DEVICE_NAME_PREFIX
 #include <SPBCx.h>
 #include <gpio.h>
 #include <hidport.h>    // HID_XFER_PACKET
 #include <vhf.h>
+
+//
+// Recent WDK reshub.h refactored RESOURCE_HUB_CREATE_PATH_FROM_ID out. Provide the classic
+// macro when absent, built from parts that are still present. Produces the standard
+// resource-hub path "\Device\RESOURCE_HUB\<16-hex connection id>".
+//
+#ifndef RESOURCE_HUB_CREATE_PATH_FROM_ID
+#define RESOURCE_HUB_CREATE_PATH_FROM_ID(Path, LowPart, HighPart)                  \
+{                                                                                  \
+    (VOID) RtlStringCchPrintfW(                                                    \
+        (Path)->Buffer,                                                            \
+        (Path)->MaximumLength / sizeof(WCHAR),                                     \
+        L"%ws%0*I64x",                                                             \
+        RESOURCE_HUB_DEVICE_NAME_PREFIX,                                           \
+        16,                                                                        \
+        (((ULONGLONG)(HighPart)) << 32) | (ULONGLONG)(ULONG)(LowPart));            \
+    RtlInitUnicodeString((Path), (Path)->Buffer);                                  \
+}
+#endif
 
 //
 // Nanosic 803 protocol constants (mirrored from the GPL kernel driver:

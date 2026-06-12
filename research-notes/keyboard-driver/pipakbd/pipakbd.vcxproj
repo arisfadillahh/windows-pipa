@@ -34,7 +34,7 @@
       <!-- spbcx.lib (SpbCx I2C client) + vhfkm.lib (Virtual HID Framework, kernel).
            Both live on the WDK lib path provided by the WDK NuGet props; KMDF entry libs
            (WdfDriverEntry/WdfLdr) are added automatically by the KMDF toolset. -->
-      <AdditionalDependencies>spbcx.lib;vhfkm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>spbcx.lib;vhfkm.lib;ntstrsafe.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Inf>
       <SpecifyArchitecture>true</SpecifyArchitecture>
