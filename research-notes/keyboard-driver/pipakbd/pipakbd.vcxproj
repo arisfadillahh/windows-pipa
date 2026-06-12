@@ -24,7 +24,8 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <WppEnabled>false</WppEnabled>
-      <PreprocessorDefinitions>_KERNEL_MODE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- _KERNEL_MODE is defined automatically by the kernel toolset; do not redefine it
+           (C4117 reserved-macro warning becomes fatal under /WX). -->
     </ClCompile>
     <Link>
       <!-- spbcx.lib (SpbCx I2C client) + vhfkm.lib (Virtual HID Framework, kernel).

@@ -51,6 +51,16 @@ jobs:
           # The StampInf MSBuild task resolves the tool via PATH; put the x64 host bin first so
           # bare-name 'stampinf.exe' (and inf2cat) resolve to runnable x64 executables.
           if ($x64Stamp) { $env:PATH = "$($x64Stamp.Directory.FullName);$env:PATH" }
+          # Ensure all WDK/SDK headers we use are on the include path (spbcx.h/vhf.h/gpio.h live
+          # in the WDK km include, which the toolset doesn't always add). Discover and append.
+          $hdrs = 'spbcx.h','vhf.h','gpio.h','hidport.h','wdf.h'
+          $incDirs = @()
+          foreach ($h in $hdrs) {
+            $f = Get-ChildItem packages -Recurse -Filter $h -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($f) { $incDirs += $f.Directory.FullName; "include for $h : $($f.Directory.FullName)" | Tee-Object -FilePath build.log -Append }
+            else { "MISSING HEADER: $h (not under packages)" | Tee-Object -FilePath build.log -Append }
+          }
+          if ($incDirs) { $env:INCLUDE = (($incDirs | Select-Object -Unique) -join ';') + ';' + $env:INCLUDE }
           msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
           "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
 
