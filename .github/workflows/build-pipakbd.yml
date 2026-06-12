@@ -63,6 +63,10 @@ jobs:
             else { "MISSING HEADER: $h (not under packages)" | Tee-Object -FilePath build.log -Append }
           }
           if ($incDirs) { $env:INCLUDE = (($incDirs | Select-Object -Unique) -join ';') + ';' + $env:INCLUDE }
+          # DIAG: where is RESOURCE_HUB_CREATE_PATH_FROM_ID actually defined?
+          Get-ChildItem packages -Recurse -Filter reshub.h -ErrorAction SilentlyContinue | ForEach-Object { "reshub.h: $($_.FullName)" | Tee-Object -FilePath build.log -Append }
+          $hit = Get-ChildItem packages -Recurse -Include *.h -ErrorAction SilentlyContinue | Select-String -Pattern 'define\s+RESOURCE_HUB_CREATE_PATH_FROM_ID' -List -ErrorAction SilentlyContinue
+          if ($hit) { $hit | ForEach-Object { "MACRO def in: $($_.Path)" | Tee-Object -FilePath build.log -Append } } else { "MACRO RESOURCE_HUB_CREATE_PATH_FROM_ID not found in any package header" | Tee-Object -FilePath build.log -Append }
           msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
           "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
 
