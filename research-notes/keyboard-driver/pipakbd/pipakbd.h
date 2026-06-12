@@ -5,15 +5,12 @@
 #include <wdf.h>
 #include <ntstrsafe.h>  // RtlStringCchPrintfW (resource-hub path)
 #include <reshub.h>     // RESOURCE_HUB_PATH_SIZE, RESOURCE_HUB_DEVICE_NAME_PREFIX
-#include <SPBCx.h>
-#include <gpio.h>
 #include <hidport.h>    // HID_XFER_PACKET
 #include <vhf.h>
 
 //
 // Recent WDK reshub.h refactored RESOURCE_HUB_CREATE_PATH_FROM_ID out. Provide the classic
-// macro when absent, built from parts that are still present. Produces the standard
-// resource-hub path "\Device\RESOURCE_HUB\<16-hex connection id>".
+// macro when absent. Produces "\Device\RESOURCE_HUB\<16-hex connection id>".
 //
 #ifndef RESOURCE_HUB_CREATE_PATH_FROM_ID
 #define RESOURCE_HUB_CREATE_PATH_FROM_ID(Path, LowPart, HighPart)                  \
@@ -30,18 +27,19 @@
 #endif
 
 //
-// Nanosic 803 protocol constants (mirrored from the GPL kernel driver:
-// MiCode/Xiaomi_Kernel_OpenSource, branch pipa-t-oss,
-// drivers/input/keyboard/nanosic_driver_v2/{nano_macro.h,nano_i2c.c}).
+// Nanosic 803 protocol (mirrored from GPL kernel driver: MiCode/Xiaomi_Kernel_OpenSource
+// pipa-t-oss, drivers/input/keyboard/nanosic_driver_v2). The chip uses a 1-byte internal
+// address equal to its slave address (const_iaddr_bytes=1): every transfer is prefixed on
+// the wire by 0x4C (write) or selected by writing 0x4C before a read.
 //
-#define NANO_I2C_SLAVE_ADDR     0x4C        // 7-bit
+#define NANO_I2C_SLAVE_ADDR     0x4C
+#define NANO_IADDR              0x4C        // first data byte on every transfer
 #define NANO_READ_LEN           68          // I2C_DATA_LENGTH_READ
-#define NANO_WRITE_LEN          66          // I2C_DATA_LENGTH_WRITE
-#define NANO_FRAME_MAGIC        0x57        // buf[0] (first_byte), else discard
-// buf[2] (third_byte) packet-group whitelist; 0x00 = null packet
-#define NANO_GROUP_IS_VALID(g)  ((g)==0x39 || (g)==0x4A || (g)==0x5B || (g)==0x6C)
+#define NANO_FRAME_BYTES        66          // I2C_DATA_LENGTH_WRITE (command payload)
 
-// Sub-packet type byte (== HID Report ID) and its on-wire slice length (incl. the type byte).
+// Frame parser constants (read path).
+#define NANO_FRAME_MAGIC        0x57
+#define NANO_GROUP_IS_VALID(g)  ((g)==0x39 || (g)==0x4A || (g)==0x5B || (g)==0x6C)
 #define NANO_T_KEYBOARD 0x05
 #define NANO_L_KEYBOARD 9
 #define NANO_T_CONSUMER 0x06
@@ -50,27 +48,20 @@
 #define NANO_L_MOUSE    8
 #define NANO_T_TOUCH    0x19
 #define NANO_L_TOUCH    21
-// Vendor/diagnostic sub-packets (forwarded to userspace on Android; ignored here).
-#define NANO_T_VENDOR16 0x22   // 16 bytes
-#define NANO_T_VENDOR32 0x23   // 32 bytes
+#define NANO_T_VENDOR16 0x22
+#define NANO_T_VENDOR32 0x23
 #define NANO_T_VENDOR_REST_A 0x24
 #define NANO_T_VENDOR_REST_B 0x26
 
+#define NANO_POLL_MS    15                  // I2C key-frame poll interval
+
 typedef struct _DEVICE_CONTEXT {
     WDFDEVICE           Device;
-
-    // SpbCx (I2C2) target opened from the ACPI I2cSerialBus connection resource.
-    WDFIOTARGET         SpbTarget;
+    WDFIOTARGET         SpbTarget;          // I2C2 controller (slave 0x4C) via ACPI conn-id
     LARGE_INTEGER       SpbConnectionId;
-
-    // GpioInt attention line (TLMM GPIO 100) opened from the second ACPI resource.
-    WDFINTERRUPT        Interrupt;
-
-    // Microsoft Virtual HID Framework handle.
+    WDFTIMER            PollTimer;          // passive-level periodic I2C read
     VHFHANDLE           VhfHandle;
     BOOLEAN             VhfStarted;
-
-    // Bounce buffer for one 68-byte I2C read, filled in the DPC.
     UCHAR               ReadBuffer[NANO_READ_LEN];
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
@@ -82,12 +73,12 @@ EVT_WDF_DEVICE_PREPARE_HARDWARE  PipaKbdEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE  PipaKbdEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY          PipaKbdEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT           PipaKbdEvtD0Exit;
-EVT_WDF_INTERRUPT_ISR            PipaKbdEvtInterruptIsr;
-EVT_WDF_INTERRUPT_DPC            PipaKbdEvtInterruptDpc;
+EVT_WDF_TIMER                    PipaKbdEvtPollTimer;
 
 // spb.c
+NTSTATUS PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Frame, _In_ ULONG Len);
 NTSTATUS PipaKbd_SpbReadFrame(_In_ PDEVICE_CONTEXT Ctx);
-NTSTATUS PipaKbd_SpbWrite(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Data, _In_ ULONG Len);
+NTSTATUS PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx);
 
 // frame.c
 VOID     PipaKbd_ParseFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Buf, _In_ ULONG Len);

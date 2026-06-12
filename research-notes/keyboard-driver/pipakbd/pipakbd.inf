@@ -44,7 +44,7 @@ ServiceBinary = %13%\pipakbd.sys
 [pipakbd_Device.NT.Wdf]
 KmdfService = pipakbd, pipakbd_wdfsect
 [pipakbd_wdfsect]
-KmdfLibraryVersion = 1.33
+KmdfLibraryVersion = 1.15
 
 [Strings]
 ProviderName        = "pipa-woa"

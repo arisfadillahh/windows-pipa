@@ -26,10 +26,11 @@ DefinitionBlock ("", "SSDT", 2, "PIPA", "NANOKBD", 0x00000001)
             Name (_HID, "NANO0803")
             Name (_UID, Zero)
             Name (_DDN, "Xiaomi Pad 6 Keyboard (Nanosic 803)")
-            Name (_DEP, Package (0x01) { \_SB.GIO0 })
-
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
 
+            // I2C-only: no GpioInt. A GpioInt on GIO0 caused STATUS_DEVICE_POWER_FAILURE
+            // (Code 10) at ACPI bring-up — GIO0's interrupt delivery isn't usable. The driver
+            // polls the chip over I2C instead, so no interrupt resource is declared.
             Method (_CRS, 0, Serialized)
             {
                 Name (RBUF, ResourceTemplate ()
@@ -37,9 +38,6 @@ DefinitionBlock ("", "SSDT", 2, "PIPA", "NANOKBD", 0x00000001)
                     I2cSerialBusV2 (0x004C, ControllerInitiated, 0x00061A80,
                         AddressingMode7Bit, "\\_SB.I2C2",
                         0x00, ResourceConsumer, , Exclusive, )
-                    GpioInt (Level, ActiveLow, ExclusiveAndWake, PullUp, 0x0000,
-                        "\\_SB.GIO0", 0x00, ResourceConsumer, , )
-                        { 0x0064 }   // TLMM GPIO 100
                 })
                 Return (RBUF)
             }

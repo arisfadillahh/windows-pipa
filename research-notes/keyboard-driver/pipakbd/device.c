@@ -1,7 +1,6 @@
-// device.c - resource parsing, power transitions, interrupt handling.
+// device.c - resource parsing, power transitions, poll timer.
 #include "pipakbd.h"
 
-// Pull the I2cSerialBus connection id and the GpioInt out of the translated resource list.
 NTSTATUS
 PipaKbdEvtPrepareHardware(
     _In_ WDFDEVICE Device,
@@ -22,10 +21,7 @@ PipaKbdEvtPrepareHardware(
             ctx->SpbConnectionId.HighPart = d->u.Connection.IdHighPart;
             haveI2c = TRUE;
         }
-        // The GpioInt is surfaced as CmResourceTypeInterrupt and is bound automatically
-        // to ctx->Interrupt by the framework (WdfInterruptCreate in EvtDeviceAdd).
     }
-
     if (!haveI2c) return STATUS_DEVICE_CONFIGURATION_ERROR;
     return STATUS_SUCCESS;
 }
@@ -46,7 +42,7 @@ PipaKbdEvtD0Entry(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE PreviousSta
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
     NTSTATUS status;
 
-    // Open the SpbCx I2C target.
+    // Open the SpbCx I2C target by resource-hub connection id.
     {
         WDF_IO_TARGET_OPEN_PARAMS open;
         WDFIOTARGET target;
@@ -60,15 +56,17 @@ PipaKbdEvtD0Entry(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE PreviousSta
         ctx->SpbTarget = target;
     }
 
-    // Bring the chip up: VHF first so reports can flow immediately.
+    // Present the HID device.
     status = PipaKbd_VhfCreate(ctx);
     if (!NT_SUCCESS(status)) return status;
 
-    // TODO(device-init): replay the firmware handshake the kernel probe issues before the
-    // chip streams. Observed host->chip write begins 0x32 0x00 0x4F 0x31 ...
-    // (FIELD_HOST). Capture the exact init write(s) from nano_driver.c / nano_i2c.c
-    // (Nanosic_i2c_write, 66-byte writes) and send via PipaKbd_SpbWrite() here.
+    // Replay the static enable/auth sequence captured from the Android HAL. Without it the
+    // keyboard enumerates but never streams keys. Failure here is non-fatal (the chip may
+    // already be enabled); log via the dump rather than failing D0.
+    (VOID) PipaKbd_SendEnableSequence(ctx);
 
+    // Start polling for key frames over I2C.
+    WdfTimerStart(ctx->PollTimer, WDF_REL_TIMEOUT_IN_MS(NANO_POLL_MS));
     return STATUS_SUCCESS;
 }
 
@@ -77,28 +75,17 @@ PipaKbdEvtD0Exit(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
 {
     UNREFERENCED_PARAMETER(TargetState);
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
+    WdfTimerStop(ctx->PollTimer, TRUE);
     PipaKbd_VhfDestroy(ctx);
     if (ctx->SpbTarget) { WdfIoTargetClose(ctx->SpbTarget); ctx->SpbTarget = NULL; }
     return STATUS_SUCCESS;
 }
 
-BOOLEAN
-PipaKbdEvtInterruptIsr(_In_ WDFINTERRUPT Interrupt, _In_ ULONG MessageId)
-{
-    UNREFERENCED_PARAMETER(MessageId);
-    // GpioInt is ours; defer all I2C work to the (passive-level) DPC.
-    WdfInterruptQueueDpcForIsr(Interrupt);
-    return TRUE;
-}
-
+// Passive-level: read one frame over I2C and dispatch its sub-packets to VHF.
 VOID
-PipaKbdEvtInterruptDpc(_In_ WDFINTERRUPT Interrupt, _In_ WDFOBJECT AssociatedObject)
+PipaKbdEvtPollTimer(_In_ WDFTIMER Timer)
 {
-    UNREFERENCED_PARAMETER(AssociatedObject);
-    PDEVICE_CONTEXT ctx = GetDeviceContext(WdfInterruptGetDevice(Interrupt));
-
-    // Drain the chip: one read per attention assertion (one frame can hold several
-    // sub-packets; PipaKbd_ParseFrame walks them all).
+    PDEVICE_CONTEXT ctx = GetDeviceContext(WdfTimerGetParentObject(Timer));
     if (NT_SUCCESS(PipaKbd_SpbReadFrame(ctx))) {
         PipaKbd_ParseFrame(ctx, ctx->ReadBuffer, NANO_READ_LEN);
     }

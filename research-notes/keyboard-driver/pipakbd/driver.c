@@ -28,7 +28,10 @@ PipaKbdEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     pnp.EvtDeviceD0Exit          = PipaKbdEvtD0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &pnp);
 
+    // Passive-level callbacks so the poll timer can issue synchronous SPB (I2C) I/O.
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attribs, DEVICE_CONTEXT);
+    attribs.ExecutionLevel = WdfExecutionLevelPassive;
+
     status = WdfDeviceCreate(&DeviceInit, &attribs, &device);
     if (!NT_SUCCESS(status)) return status;
 
@@ -36,13 +39,16 @@ PipaKbdEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     RtlZeroMemory(ctx, sizeof(*ctx));
     ctx->Device = device;
 
-    // Level-triggered GPIO attention interrupt -> ISR acknowledges, DPC does the I2C read
-    // (I2C transfers are passive-level, so the work must happen in the DPC, not the ISR).
+    // Periodic passive-level timer for I2C key-frame polling (no GpioInt: GIO0 interrupt
+    // delivery is unreliable and caused STATUS_DEVICE_POWER_FAILURE at start).
     {
-        WDF_INTERRUPT_CONFIG ic;
-        WDF_INTERRUPT_CONFIG_INIT(&ic, PipaKbdEvtInterruptIsr, PipaKbdEvtInterruptDpc);
-        ic.PassiveHandling = TRUE;   // allow passive-level DPC for SPB I/O
-        status = WdfInterruptCreate(device, &ic, WDF_NO_OBJECT_ATTRIBUTES, &ctx->Interrupt);
+        WDF_TIMER_CONFIG tc;
+        WDF_OBJECT_ATTRIBUTES ta;
+        WDF_TIMER_CONFIG_INIT_PERIODIC(&tc, PipaKbdEvtPollTimer, NANO_POLL_MS);
+        WDF_OBJECT_ATTRIBUTES_INIT(&ta);
+        ta.ParentObject = device;
+        ta.ExecutionLevel = WdfExecutionLevelPassive;
+        status = WdfTimerCreate(&tc, &ta, &ctx->PollTimer);
         if (!NT_SUCCESS(status)) return status;
     }
 
