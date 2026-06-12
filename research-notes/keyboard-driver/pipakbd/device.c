@@ -53,19 +53,25 @@ PipaKbdEvtD0Entry(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE PreviousSta
     status = WdfIoTargetOpen(target, &open);
     if (!NT_SUCCESS(status)) { WdfObjectDelete(target); return status; }
     ctx->SpbTarget = target;
+    return STATUS_SUCCESS;   // NO I2C I/O here - see SelfManagedIoInit (avoids 0x9F).
+}
 
-    // The whole point: unlock the keyboard. Non-fatal if a frame NAKs (chip may already be up).
+// Runs once at PASSIVE after the device and its SPB target are fully started. Safe place for
+// the synchronous I2C work. Always returns success so a NAK never fails device start.
+NTSTATUS
+PipaKbdEvtSelfManagedIoInit(_In_ WDFDEVICE Device)
+{
+    PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
+
     ULONG okCount = 0;
     NTSTATUS enStatus = PipaKbd_SendEnableSequence(ctx, &okCount);
 
-    // Diagnostic read-back: prove the I2C round-trip works (head byte 0x57 = chip responding).
     ULONG_PTR got = 0;
     NTSTATUS rdStatus = PipaKbd_SpbReadOnce(ctx, &got);
     ULONG rdHead = ((ULONG)ctx->ReadBuffer[0]) | ((ULONG)ctx->ReadBuffer[1] << 8) |
                    ((ULONG)ctx->ReadBuffer[2] << 16) | ((ULONG)ctx->ReadBuffer[3] << 24);
     ULONG gotL = (ULONG)got;
 
-    // Surface results to HKLM\SYSTEM\CurrentControlSet\Services\pipakbd for the install dump.
     RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"EnableOk", REG_DWORD, &okCount, sizeof(ULONG));
     RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"EnableStatus", REG_DWORD, &enStatus, sizeof(ULONG));
     RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"ReadStatus", REG_DWORD, &rdStatus, sizeof(ULONG));

@@ -25,6 +25,9 @@ PipaKbdEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     pnp.EvtDeviceReleaseHardware = PipaKbdEvtReleaseHardware;
     pnp.EvtDeviceD0Entry         = PipaKbdEvtD0Entry;
     pnp.EvtDeviceD0Exit          = PipaKbdEvtD0Exit;
+    // Do the actual I2C I/O here (passive, after the device + SPB target are fully started),
+    // NOT in D0Entry: synchronous SPB I/O during the power transition deadlocks -> 0x9F.
+    pnp.EvtDeviceSelfManagedIoInit = PipaKbdEvtSelfManagedIoInit;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &pnp);
 
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attribs, DEVICE_CONTEXT);

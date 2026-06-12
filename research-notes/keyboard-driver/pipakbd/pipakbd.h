@@ -47,6 +47,7 @@ EVT_WDF_DEVICE_PREPARE_HARDWARE  PipaKbdEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE  PipaKbdEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY          PipaKbdEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT           PipaKbdEvtD0Exit;
+EVT_WDF_DEVICE_SELF_MANAGED_IO_INIT PipaKbdEvtSelfManagedIoInit;
 
 NTSTATUS PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Frame, _In_ ULONG Len);
 NTSTATUS PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG OkCount);
