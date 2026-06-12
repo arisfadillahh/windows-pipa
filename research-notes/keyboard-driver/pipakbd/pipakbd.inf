@@ -2,8 +2,8 @@
 ; Binds the ACPI child node added under \_SB.I2C2 (see NanoKbdSSDT.asl): _HID NANO0803.
 [Version]
 Signature   = "$WINDOWS NT$"
-Class       = HIDClass
-ClassGuid   = {745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
+Class       = System
+ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
 CatalogFile = pipakbd.cat
 DriverVer   = 06/12/2026,1.0.0.0

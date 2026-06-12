@@ -1,4 +1,4 @@
-// device.c - resource parsing, power transitions, poll timer.
+// device.c - resource parse + power transitions. On D0Entry: open I2C, send enable sequence.
 #include "pipakbd.h"
 
 NTSTATUS
@@ -42,31 +42,20 @@ PipaKbdEvtD0Entry(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE PreviousSta
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
     NTSTATUS status;
 
-    // Open the SpbCx I2C target by resource-hub connection id.
-    {
-        WDF_IO_TARGET_OPEN_PARAMS open;
-        WDFIOTARGET target;
-        DECLARE_UNICODE_STRING_SIZE(path, RESOURCE_HUB_PATH_SIZE);
-        status = WdfIoTargetCreate(Device, WDF_NO_OBJECT_ATTRIBUTES, &target);
-        if (!NT_SUCCESS(status)) return status;
-        RESOURCE_HUB_CREATE_PATH_FROM_ID(&path, ctx->SpbConnectionId.LowPart, ctx->SpbConnectionId.HighPart);
-        WDF_IO_TARGET_OPEN_PARAMS_INIT_OPEN_BY_NAME(&open, &path, FILE_GENERIC_READ | FILE_GENERIC_WRITE);
-        status = WdfIoTargetOpen(target, &open);
-        if (!NT_SUCCESS(status)) { WdfObjectDelete(target); return status; }
-        ctx->SpbTarget = target;
-    }
+    WDF_IO_TARGET_OPEN_PARAMS open;
+    WDFIOTARGET target;
+    DECLARE_UNICODE_STRING_SIZE(path, RESOURCE_HUB_PATH_SIZE);
 
-    // Present the HID device.
-    status = PipaKbd_VhfCreate(ctx);
+    status = WdfIoTargetCreate(Device, WDF_NO_OBJECT_ATTRIBUTES, &target);
     if (!NT_SUCCESS(status)) return status;
+    RESOURCE_HUB_CREATE_PATH_FROM_ID(&path, ctx->SpbConnectionId.LowPart, ctx->SpbConnectionId.HighPart);
+    WDF_IO_TARGET_OPEN_PARAMS_INIT_OPEN_BY_NAME(&open, &path, FILE_GENERIC_READ | FILE_GENERIC_WRITE);
+    status = WdfIoTargetOpen(target, &open);
+    if (!NT_SUCCESS(status)) { WdfObjectDelete(target); return status; }
+    ctx->SpbTarget = target;
 
-    // Replay the static enable/auth sequence captured from the Android HAL. Without it the
-    // keyboard enumerates but never streams keys. Failure here is non-fatal (the chip may
-    // already be enabled); log via the dump rather than failing D0.
+    // The whole point: unlock the keyboard. Non-fatal if a frame NAKs (chip may already be up).
     (VOID) PipaKbd_SendEnableSequence(ctx);
-
-    // Start polling for key frames over I2C.
-    WdfTimerStart(ctx->PollTimer, WDF_REL_TIMEOUT_IN_MS(NANO_POLL_MS));
     return STATUS_SUCCESS;
 }
 
@@ -75,18 +64,6 @@ PipaKbdEvtD0Exit(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
 {
     UNREFERENCED_PARAMETER(TargetState);
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
-    WdfTimerStop(ctx->PollTimer, TRUE);
-    PipaKbd_VhfDestroy(ctx);
     if (ctx->SpbTarget) { WdfIoTargetClose(ctx->SpbTarget); ctx->SpbTarget = NULL; }
     return STATUS_SUCCESS;
-}
-
-// Passive-level: read one frame over I2C and dispatch its sub-packets to VHF.
-VOID
-PipaKbdEvtPollTimer(_In_ WDFTIMER Timer)
-{
-    PDEVICE_CONTEXT ctx = GetDeviceContext(WdfTimerGetParentObject(Timer));
-    if (NT_SUCCESS(PipaKbd_SpbReadFrame(ctx))) {
-        PipaKbd_ParseFrame(ctx, ctx->ReadBuffer, NANO_READ_LEN);
-    }
 }

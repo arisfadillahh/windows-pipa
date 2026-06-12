@@ -1,12 +1,10 @@
-// spb.c - SpbCx (I2C) write/read for slave 0x4C, plus the chip enable sequence.
+// spb.c - I2C writes for slave 0x4C + the static keyboard enable sequence.
 //
-// Wire convention (kernel const_iaddr_bytes=1): every transfer is prefixed by the chip's
-// address byte 0x4C. Writes  = [0x4C][66-byte command]. Reads = write [0x4C], then read 68.
+// Wire convention (kernel const_iaddr_bytes=1): every write is prefixed by 0x4C, then the
+// 66-byte command payload. Captured byte-for-byte from the Android HAL (identical across
+// reboots -> static, not a per-session challenge).
 #include "pipakbd.h"
 
-// Static enable/auth sequence, captured byte-for-byte from the Android HAL (identical across
-// reboots -> not a per-session challenge). Each entry is the 15-byte command payload as seen
-// on /dev/nanodev0; SpbWriteFrame prepends 0x4C and zero-pads to 66 on the wire.
 static const UCHAR g_EnableSeq[][15] = {
     {0x32,0x00,0x4E,0x31,0x80,0x38,0x25,0x01,0x01,0x5E,0x00,0x00,0x00,0x00,0x00}, // screen on
     {0x32,0x00,0x4E,0x31,0x80,0x38,0xA1,0x01,0x01,0xDA,0x00,0x00,0x00,0x00,0x00},
@@ -25,9 +23,8 @@ static const UCHAR g_EnableSeq[][15] = {
 NTSTATUS
 PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Frame, _In_ ULONG Len)
 {
-    NTSTATUS status;
     WDF_MEMORY_DESCRIPTOR memDesc;
-    UCHAR buf[1 + NANO_FRAME_BYTES];        // 0x4C + 66-byte command
+    UCHAR buf[1 + NANO_FRAME_BYTES];
 
     if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
     if (Len > NANO_FRAME_BYTES) Len = NANO_FRAME_BYTES;
@@ -37,8 +34,7 @@ PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Fra
     RtlCopyMemory(&buf[1], Frame, Len);
 
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&memDesc, buf, sizeof(buf));
-    status = WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &memDesc, NULL, NULL, NULL);
-    return status;
+    return WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &memDesc, NULL, NULL, NULL);
 }
 
 NTSTATUS
@@ -48,31 +44,8 @@ PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx)
     for (ULONG i = 0; i < RTL_NUMBER_OF(g_EnableSeq); i++) {
         NTSTATUS s = PipaKbd_SpbWriteFrame(Ctx, g_EnableSeq[i], 15);
         if (!NT_SUCCESS(s)) last = s;
-        // small gap between frames (the HAL spaces them by a few ms)
-        LARGE_INTEGER dt; dt.QuadPart = -(5 * 10 * 1000); // 5 ms
+        LARGE_INTEGER dt; dt.QuadPart = -(5 * 10 * 1000); // 5 ms between frames
         KeDelayExecutionThread(KernelMode, FALSE, &dt);
     }
     return last;
-}
-
-// Select the 0x4C internal address, then read NANO_READ_LEN bytes into Ctx->ReadBuffer.
-NTSTATUS
-PipaKbd_SpbReadFrame(_In_ PDEVICE_CONTEXT Ctx)
-{
-    NTSTATUS status;
-    WDF_MEMORY_DESCRIPTOR wDesc, rDesc;
-    UCHAR addr = NANO_IADDR;
-    ULONG_PTR got = 0;
-
-    if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
-
-    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&wDesc, &addr, sizeof(addr));
-    status = WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &wDesc, NULL, NULL, NULL);
-    if (!NT_SUCCESS(status)) return status;
-
-    RtlZeroMemory(Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
-    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&rDesc, Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
-    status = WdfIoTargetSendReadSynchronously(Ctx->SpbTarget, NULL, &rDesc, NULL, NULL, &got);
-    if (NT_SUCCESS(status) && got < 3) status = STATUS_DEVICE_DATA_ERROR;
-    return status;
 }
