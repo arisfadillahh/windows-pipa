@@ -33,8 +33,14 @@ PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Fra
     buf[0] = NANO_IADDR;
     RtlCopyMemory(&buf[1], Frame, Len);
 
+    // Bounded timeout: if qci2c can't complete the transfer (SE clock not up on this minimal
+    // platform), return STATUS_IO_TIMEOUT instead of wedging the power path -> hard reset.
+    WDF_REQUEST_SEND_OPTIONS opts;
+    WDF_REQUEST_SEND_OPTIONS_INIT(&opts, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+    WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&opts, WDF_REL_TIMEOUT_IN_MS(150));
+
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&memDesc, buf, sizeof(buf));
-    return WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &memDesc, NULL, NULL, NULL);
+    return WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &memDesc, NULL, &opts, NULL);
 }
 
 NTSTATUS
@@ -62,11 +68,15 @@ PipaKbd_SpbReadOnce(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG_PTR Got)
     *Got = 0;
     if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
 
+    WDF_REQUEST_SEND_OPTIONS opts;
+    WDF_REQUEST_SEND_OPTIONS_INIT(&opts, WDF_REQUEST_SEND_OPTION_TIMEOUT);
+    WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&opts, WDF_REL_TIMEOUT_IN_MS(150));
+
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&wDesc, &addr, sizeof(addr));
-    status = WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &wDesc, NULL, NULL, NULL);
+    status = WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &wDesc, NULL, &opts, NULL);
     if (!NT_SUCCESS(status)) return status;
 
     RtlZeroMemory(Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&rDesc, Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
-    return WdfIoTargetSendReadSynchronously(Ctx->SpbTarget, NULL, &rDesc, NULL, NULL, Got);
+    return WdfIoTargetSendReadSynchronously(Ctx->SpbTarget, NULL, &rDesc, NULL, &opts, Got);
 }
