@@ -31,10 +31,11 @@
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)packages\Microsoft.Windows.WDK.arm64.10.0.28000.1839\c\Include\10.0.28000.0\km\spb\1.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <!-- spbcx.lib (SpbCx I2C client) + vhfkm.lib (Virtual HID Framework, kernel).
-           Both live on the WDK lib path provided by the WDK NuGet props; KMDF entry libs
+      <!-- vhfkm.lib (Virtual HID Framework, kernel) + ntstrsafe.lib (RtlStringCchPrintfW).
+           No spbcx.lib: this is an SPB *client* (talks to the I2C controller via WdfIoTarget
+           read/write), not an SPB controller, so it links no SpbCx exports. KMDF entry libs
            (WdfDriverEntry/WdfLdr) are added automatically by the KMDF toolset. -->
-      <AdditionalDependencies>spbcx.lib;vhfkm.lib;ntstrsafe.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>vhfkm.lib;ntstrsafe.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <!-- $(ExtraLibDir) is supplied by the CI build (discovered NuGet WDK lib dirs for
            spbcx.lib/vhfkm.lib that aren't on the default lib path). -->
       <AdditionalLibraryDirectories>$(ExtraLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
