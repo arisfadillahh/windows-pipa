@@ -22,8 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Add MSBuild to PATH
+      - name: Add MSBuild to PATH (64-bit)
         uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64   # so the InfVerif task loads x64\InfVerif.dll, not x86\
 
       - name: Setup NuGet
         uses: nuget/setup-nuget@v2

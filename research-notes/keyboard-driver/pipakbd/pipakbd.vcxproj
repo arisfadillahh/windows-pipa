@@ -26,6 +26,9 @@
       <WppEnabled>false</WppEnabled>
       <!-- _KERNEL_MODE is defined automatically by the kernel toolset; do not redefine it
            (C4117 reserved-macro warning becomes fatal under /WX). -->
+      <!-- spbcx.h is in the versioned km\spb\1.0 subfolder which the toolset doesn't add.
+           Path is stable because the WDK NuGet version is pinned in packages.config. -->
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)packages\Microsoft.Windows.WDK.arm64.10.0.28000.1839\c\Include\10.0.28000.0\km\spb\1.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <!-- spbcx.lib (SpbCx I2C client) + vhfkm.lib (Virtual HID Framework, kernel).
