@@ -35,6 +35,9 @@
            Both live on the WDK lib path provided by the WDK NuGet props; KMDF entry libs
            (WdfDriverEntry/WdfLdr) are added automatically by the KMDF toolset. -->
       <AdditionalDependencies>spbcx.lib;vhfkm.lib;ntstrsafe.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- $(ExtraLibDir) is supplied by the CI build (discovered NuGet WDK lib dirs for
+           spbcx.lib/vhfkm.lib that aren't on the default lib path). -->
+      <AdditionalLibraryDirectories>$(ExtraLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Inf>
       <SpecifyArchitecture>true</SpecifyArchitecture>

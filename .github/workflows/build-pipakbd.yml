@@ -63,11 +63,18 @@ jobs:
             else { "MISSING HEADER: $h (not under packages)" | Tee-Object -FilePath build.log -Append }
           }
           if ($incDirs) { $env:INCLUDE = (($incDirs | Select-Object -Unique) -join ';') + ';' + $env:INCLUDE }
-          # DIAG: where is RESOURCE_HUB_CREATE_PATH_FROM_ID actually defined?
-          Get-ChildItem packages -Recurse -Filter reshub.h -ErrorAction SilentlyContinue | ForEach-Object { "reshub.h: $($_.FullName)" | Tee-Object -FilePath build.log -Append }
-          $hit = Get-ChildItem packages -Recurse -Include *.h -ErrorAction SilentlyContinue | Select-String -Pattern 'define\s+RESOURCE_HUB_CREATE_PATH_FROM_ID' -List -ErrorAction SilentlyContinue
-          if ($hit) { $hit | ForEach-Object { "MACRO def in: $($_.Path)" | Tee-Object -FilePath build.log -Append } } else { "MACRO RESOURCE_HUB_CREATE_PATH_FROM_ID not found in any package header" | Tee-Object -FilePath build.log -Append }
-          msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
+          # Discover the WDK lib dirs for libs not on the default lib path (spbcx.lib etc.)
+          # and pass them as AdditionalLibraryDirectories via $(ExtraLibDir).
+          $libNames = 'spbcx.lib','vhfkm.lib','ntstrsafe.lib'
+          $libDirs = @()
+          foreach ($n in $libNames) {
+            $f = Get-ChildItem packages -Recurse -Filter $n -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\arm64\\' } | Select-Object -First 1
+            if ($f) { $libDirs += $f.Directory.FullName; "lib $n : $($f.Directory.FullName)" | Tee-Object -FilePath build.log -Append }
+            else { "MISSING LIB: $n" | Tee-Object -FilePath build.log -Append }
+          }
+          $extra = (($libDirs | Select-Object -Unique) -join '%3B')
+          "ExtraLibDir=$extra" | Tee-Object -FilePath build.log -Append
+          msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /p:ExtraLibDir="$extra" /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
           "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
 
       - name: Gather outputs
