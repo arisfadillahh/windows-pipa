@@ -36,7 +36,12 @@ jobs:
         working-directory: ${{ env.PROJ_DIR }}
         continue-on-error: true
         run: |
-          msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log
+          # WDK host tools (stampinf.exe, inf2cat, etc.) are invoked by bare name, so put the
+          # NuGet WDK x64 bin on PATH (the props don't add it under setup-msbuild).
+          $stamp = Get-ChildItem packages -Recurse -Filter stampinf.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($stamp) { $env:PATH = "$($stamp.Directory.FullName);$env:PATH"; "stampinf bin: $($stamp.Directory.FullName)" | Tee-Object -FilePath build.log }
+          else { "WARN: stampinf.exe not found under packages" | Tee-Object -FilePath build.log; Get-ChildItem packages -Recurse -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 40 FullName | Out-String | Tee-Object -FilePath build.log -Append }
+          msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
           "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
 
       - name: Gather outputs
