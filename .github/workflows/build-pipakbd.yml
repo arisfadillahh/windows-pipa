@@ -36,11 +36,18 @@ jobs:
         working-directory: ${{ env.PROJ_DIR }}
         continue-on-error: true
         run: |
-          # WDK host tools (stampinf.exe, inf2cat, etc.) are invoked by bare name, so put the
-          # NuGet WDK x64 bin on PATH (the props don't add it under setup-msbuild).
-          $stamp = Get-ChildItem packages -Recurse -Filter stampinf.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($stamp) { $env:PATH = "$($stamp.Directory.FullName);$env:PATH"; "stampinf bin: $($stamp.Directory.FullName)" | Tee-Object -FilePath build.log }
-          else { "WARN: stampinf.exe not found under packages" | Tee-Object -FilePath build.log; Get-ChildItem packages -Recurse -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 40 FullName | Out-String | Tee-Object -FilePath build.log -Append }
+          # Cross-build fix: the WDK targets invoke host tools (stampinf/inf2cat) from the
+          # TARGET-arch (ARM64) package bin, which can't run on the x64 runner (FileTracker
+          # 0xd8 = arch mismatch). Overlay the x64 host-tool binaries onto that ARM64 bin dir
+          # so the computed tool path resolves to a runnable x64 executable.
+          $armStamp = Get-ChildItem packages -Recurse -Filter stampinf.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'WDK\.ARM64.*\\ARM64\\' } | Select-Object -First 1
+          $x64Stamp = Get-ChildItem packages -Recurse -Filter stampinf.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'WDK\.x64.*\\x64\\' } | Select-Object -First 1
+          "arm64 host-tool bin: $($armStamp.Directory.FullName)" | Tee-Object -FilePath build.log
+          "x64   host-tool bin: $($x64Stamp.Directory.FullName)" | Tee-Object -FilePath build.log -Append
+          if ($armStamp -and $x64Stamp) {
+            Copy-Item "$($x64Stamp.Directory.FullName)\*" $armStamp.Directory.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            "overlaid x64 host tools onto ARM64 bin" | Tee-Object -FilePath build.log -Append
+          } else { "WARN: could not locate both stampinf bins" | Tee-Object -FilePath build.log -Append }
           msbuild pipakbd.vcxproj /p:Configuration=Release /p:Platform=ARM64 /v:n /bl:build.binlog *>&1 | Tee-Object -FilePath build.log -Append
           "MSBUILD_EXIT=$LASTEXITCODE" | Tee-Object -FilePath build.log -Append
 
