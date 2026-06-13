@@ -24,6 +24,7 @@ NTSTATUS
 PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Frame, _In_ ULONG Len)
 {
     WDF_MEMORY_DESCRIPTOR memDesc;
+    WDF_REQUEST_SEND_OPTIONS opts;
     UCHAR buf[1 + NANO_FRAME_BYTES];
 
     if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
@@ -35,7 +36,6 @@ PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Fra
 
     // Bounded timeout: if qci2c can't complete the transfer (SE clock not up on this minimal
     // platform), return STATUS_IO_TIMEOUT instead of wedging the power path -> hard reset.
-    WDF_REQUEST_SEND_OPTIONS opts;
     WDF_REQUEST_SEND_OPTIONS_INIT(&opts, WDF_REQUEST_SEND_OPTION_TIMEOUT);
     WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&opts, WDF_REL_TIMEOUT_IN_MS(150));
 
@@ -48,10 +48,12 @@ PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG OkCount)
 {
     NTSTATUS last = STATUS_SUCCESS;
     ULONG ok = 0;
-    for (ULONG i = 0; i < RTL_NUMBER_OF(g_EnableSeq); i++) {
+    ULONG i;
+    LARGE_INTEGER dt;
+    for (i = 0; i < RTL_NUMBER_OF(g_EnableSeq); i++) {
         NTSTATUS s = PipaKbd_SpbWriteFrame(Ctx, g_EnableSeq[i], 15);
         if (NT_SUCCESS(s)) ok++; else last = s;
-        LARGE_INTEGER dt; dt.QuadPart = -(5 * 10 * 1000); // 5 ms between frames
+        dt.QuadPart = -(5 * 10 * 1000); // 5 ms between frames
         KeDelayExecutionThread(KernelMode, FALSE, &dt);
     }
     *OkCount = ok;
@@ -64,11 +66,11 @@ PipaKbd_SpbReadOnce(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG_PTR Got)
 {
     NTSTATUS status;
     WDF_MEMORY_DESCRIPTOR wDesc, rDesc;
+    WDF_REQUEST_SEND_OPTIONS opts;
     UCHAR addr = NANO_IADDR;
     *Got = 0;
     if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
 
-    WDF_REQUEST_SEND_OPTIONS opts;
     WDF_REQUEST_SEND_OPTIONS_INIT(&opts, WDF_REQUEST_SEND_OPTION_TIMEOUT);
     WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&opts, WDF_REL_TIMEOUT_IN_MS(150));
 

@@ -35,7 +35,7 @@
            No spbcx.lib: this is an SPB *client* (talks to the I2C controller via WdfIoTarget
            read/write), not an SPB controller, so it links no SpbCx exports. KMDF entry libs
            (WdfDriverEntry/WdfLdr) are added automatically by the KMDF toolset. -->
-      <AdditionalDependencies>ntstrsafe.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ntstrsafe.lib;vhfkm.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <!-- $(ExtraLibDir) is supplied by the CI build (discovered NuGet WDK lib dirs for
            spbcx.lib/vhfkm.lib that aren't on the default lib path). -->
       <AdditionalLibraryDirectories>$(ExtraLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
@@ -48,7 +48,9 @@
   <ItemGroup>
     <ClCompile Include="driver.c" />
     <ClCompile Include="device.c" />
+    <ClCompile Include="frame.c" />
     <ClCompile Include="spb.c" />
+    <ClCompile Include="vhf.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pipakbd.h" />

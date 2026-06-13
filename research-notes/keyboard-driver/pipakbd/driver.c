@@ -19,6 +19,9 @@ PipaKbdEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     WDF_PNPPOWER_EVENT_CALLBACKS pnp;
     WDF_OBJECT_ATTRIBUTES attribs;
     WDFDEVICE device;
+    PDEVICE_CONTEXT ctx;
+    WDF_TIMER_CONFIG timerConfig;
+    WDF_OBJECT_ATTRIBUTES timerAttribs;
 
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);
     pnp.EvtDevicePrepareHardware = PipaKbdEvtPrepareHardware;
@@ -35,5 +38,16 @@ PipaKbdEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit)
     if (!NT_SUCCESS(status)) return status;
 
     GetDeviceContext(device)->Device = device;
+    ctx = GetDeviceContext(device);
+
+    WDF_TIMER_CONFIG_INIT(&timerConfig, PipaKbdEvtPollTimer);
+    timerConfig.AutomaticSerialization = FALSE;
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&timerAttribs, TIMER_CONTEXT);
+    timerAttribs.ParentObject = device;
+    timerAttribs.ExecutionLevel = WdfExecutionLevelPassive;
+    status = WdfTimerCreate(&timerConfig, &timerAttribs, &ctx->PollTimer);
+    if (!NT_SUCCESS(status)) return status;
+    GetTimerContext(ctx->PollTimer)->Device = device;
+
     return STATUS_SUCCESS;
 }

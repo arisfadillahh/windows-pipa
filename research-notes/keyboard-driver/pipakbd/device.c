@@ -1,5 +1,27 @@
-// device.c - resource parse + power transitions. On D0Entry: open I2C, send enable sequence.
+// device.c - resource parse, power transitions, enable sequence, and polling.
 #include "pipakbd.h"
+
+static VOID
+PipaKbd_WriteDword(_In_ PCWSTR Name, _In_ ULONG Value)
+{
+    (VOID)RtlWriteRegistryValue(RTL_REGISTRY_SERVICES,
+                                L"pipakbd",
+                                Name,
+                                REG_DWORD,
+                                &Value,
+                                sizeof(Value));
+}
+
+static VOID
+PipaKbd_WritePollDiag(_In_ PDEVICE_CONTEXT Ctx)
+{
+    PipaKbd_WriteDword(L"PollCount", Ctx->PollCount);
+    PipaKbd_WriteDword(L"PollOk", Ctx->PollOk);
+    PipaKbd_WriteDword(L"PollTimeout", Ctx->PollTimeout);
+    PipaKbd_WriteDword(L"PollError", Ctx->PollError);
+    PipaKbd_WriteDword(L"LastReadStatus", (ULONG)Ctx->LastReadStatus);
+    PipaKbd_WriteDword(L"LastReadHead", Ctx->LastReadHead);
+}
 
 NTSTATUS
 PipaKbdEvtPrepareHardware(
@@ -11,8 +33,9 @@ PipaKbdEvtPrepareHardware(
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
     ULONG count = WdfCmResourceListGetCount(ResourcesTranslated);
     BOOLEAN haveI2c = FALSE;
+    ULONG i;
 
-    for (ULONG i = 0; i < count; i++) {
+    for (i = 0; i < count; i++) {
         PCM_PARTIAL_RESOURCE_DESCRIPTOR d = WdfCmResourceListGetDescriptor(ResourcesTranslated, i);
         if (d->Type == CmResourceTypeConnection &&
             d->u.Connection.Class == CM_RESOURCE_CONNECTION_CLASS_SERIAL &&
@@ -62,21 +85,21 @@ NTSTATUS
 PipaKbdEvtSelfManagedIoInit(_In_ WDFDEVICE Device)
 {
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
-
+    NTSTATUS vhfStatus;
     ULONG okCount = 0;
-    NTSTATUS enStatus = PipaKbd_SendEnableSequence(ctx, &okCount);
+    NTSTATUS enStatus;
 
-    ULONG_PTR got = 0;
-    NTSTATUS rdStatus = PipaKbd_SpbReadOnce(ctx, &got);
-    ULONG rdHead = ((ULONG)ctx->ReadBuffer[0]) | ((ULONG)ctx->ReadBuffer[1] << 8) |
-                   ((ULONG)ctx->ReadBuffer[2] << 16) | ((ULONG)ctx->ReadBuffer[3] << 24);
-    ULONG gotL = (ULONG)got;
+    vhfStatus = PipaKbd_VhfCreate(ctx);
+    PipaKbd_WriteDword(L"VhfStatus", (ULONG)vhfStatus);
 
-    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"EnableOk", REG_DWORD, &okCount, sizeof(ULONG));
-    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"EnableStatus", REG_DWORD, &enStatus, sizeof(ULONG));
-    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"ReadStatus", REG_DWORD, &rdStatus, sizeof(ULONG));
-    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"ReadBytes", REG_DWORD, &gotL, sizeof(ULONG));
-    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"pipakbd", L"ReadHead", REG_DWORD, &rdHead, sizeof(ULONG));
+    enStatus = PipaKbd_SendEnableSequence(ctx, &okCount);
+    PipaKbd_WriteDword(L"EnableOk", okCount);
+    PipaKbd_WriteDword(L"EnableStatus", (ULONG)enStatus);
+
+    if (NT_SUCCESS(vhfStatus) && ctx->PollTimer != NULL) {
+        ctx->StopPolling = FALSE;
+        WdfTimerStart(ctx->PollTimer, WDF_REL_TIMEOUT_IN_MS(20));
+    }
     return STATUS_SUCCESS;
 }
 
@@ -85,6 +108,54 @@ PipaKbdEvtD0Exit(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
 {
     UNREFERENCED_PARAMETER(TargetState);
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
+    ctx->StopPolling = TRUE;
+    if (ctx->PollTimer != NULL) {
+        WdfTimerStop(ctx->PollTimer, TRUE);
+    }
+    PipaKbd_VhfDestroy(ctx);
     if (ctx->SpbTarget) { WdfIoTargetClose(ctx->SpbTarget); ctx->SpbTarget = NULL; }
     return STATUS_SUCCESS;
+}
+
+VOID
+PipaKbdEvtPollTimer(_In_ WDFTIMER Timer)
+{
+    WDFDEVICE device = GetTimerContext(Timer)->Device;
+    PDEVICE_CONTEXT ctx = GetDeviceContext(device);
+    ULONG_PTR got = 0;
+    NTSTATUS status;
+
+    if (ctx->StopPolling || ctx->SpbTarget == NULL) {
+        return;
+    }
+
+    status = PipaKbd_SpbReadOnce(ctx, &got);
+    ctx->PollCount++;
+    ctx->LastReadStatus = status;
+    ctx->LastReadHead = ((ULONG)ctx->ReadBuffer[0]) |
+                        ((ULONG)ctx->ReadBuffer[1] << 8) |
+                        ((ULONG)ctx->ReadBuffer[2] << 16) |
+                        ((ULONG)ctx->ReadBuffer[3] << 24);
+
+    if (NT_SUCCESS(status) && got > 0) {
+        ctx->PollOk++;
+        PipaKbd_ParseFrame(ctx, ctx->ReadBuffer, (ULONG)got);
+        PipaKbd_WriteDword(L"ReadBytes", (ULONG)got);
+        PipaKbd_WriteDword(L"ReadHead", ctx->LastReadHead);
+        PipaKbd_WritePollDiag(ctx);
+        WdfTimerStart(ctx->PollTimer, WDF_REL_TIMEOUT_IN_MS(1));
+        return;
+    }
+
+    if (status == STATUS_IO_TIMEOUT) {
+        ctx->PollTimeout++;
+    } else {
+        ctx->PollError++;
+    }
+
+    if ((ctx->PollCount % 32) == 0 || status != STATUS_IO_TIMEOUT) {
+        PipaKbd_WritePollDiag(ctx);
+    }
+
+    WdfTimerStart(ctx->PollTimer, WDF_REL_TIMEOUT_IN_MS(30));
 }

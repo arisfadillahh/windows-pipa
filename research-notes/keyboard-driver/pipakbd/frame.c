@@ -22,13 +22,15 @@ PipaKbd_ParseFrame(
     _In_reads_(Len) const UCHAR* Buf,
     _In_ ULONG Len)
 {
+    ULONG i;
+
     if (Len < 3)                       return;
     if (Buf[0] != NANO_FRAME_MAGIC)    return;     // first_byte != 0x57
     // Buf[1] = seq (unused here)
     if (Buf[2] == 0x00)                return;     // null packet
     if (!NANO_GROUP_IS_VALID(Buf[2]))  return;     // unknown group
 
-    ULONG i = 3;                                   // sub-packet stream start
+    i = 3;                                        // sub-packet stream start
     while (i < Len) {
         UCHAR type = Buf[i];                       // == HID Report ID
         ULONG slice;
