@@ -1,8 +1,8 @@
 // spb.c - I2C writes for slave 0x4C + the static keyboard enable sequence.
 //
-// Wire convention (kernel const_iaddr_bytes=1): every write is prefixed by 0x4C, then the
-// 66-byte command payload. Captured byte-for-byte from the Android HAL (identical across
-// reboots -> static, not a per-session challenge).
+// Captured Android dmesg reports the command bytes themselves, e.g.
+// [32004F31803831064D494155544837]. The SPB target already represents slave 0x4C,
+// so the driver writes only the command payload and reads directly from that target.
 #include "pipakbd.h"
 
 static const UCHAR g_EnableSeq[][15] = {
@@ -25,21 +25,16 @@ PipaKbd_SpbWriteFrame(_In_ PDEVICE_CONTEXT Ctx, _In_reads_(Len) const UCHAR* Fra
 {
     WDF_MEMORY_DESCRIPTOR memDesc;
     WDF_REQUEST_SEND_OPTIONS opts;
-    UCHAR buf[1 + NANO_FRAME_BYTES];
 
     if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
     if (Len > NANO_FRAME_BYTES) Len = NANO_FRAME_BYTES;
-
-    RtlZeroMemory(buf, sizeof(buf));
-    buf[0] = NANO_IADDR;
-    RtlCopyMemory(&buf[1], Frame, Len);
 
     // Bounded timeout: if qci2c can't complete the transfer (SE clock not up on this minimal
     // platform), return STATUS_IO_TIMEOUT instead of wedging the power path -> hard reset.
     WDF_REQUEST_SEND_OPTIONS_INIT(&opts, WDF_REQUEST_SEND_OPTION_TIMEOUT);
     WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&opts, WDF_REL_TIMEOUT_IN_MS(150));
 
-    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&memDesc, buf, sizeof(buf));
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&memDesc, (PVOID)Frame, Len);
     return WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &memDesc, NULL, &opts, NULL);
 }
 
@@ -60,25 +55,21 @@ PipaKbd_SendEnableSequence(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG OkCount)
     return last;
 }
 
-// Diagnostic one-shot read: select 0x4C, read 68 bytes into Ctx->ReadBuffer.
+// Diagnostic one-shot read: read 68 bytes from the already-addressed SPB target.
 NTSTATUS
 PipaKbd_SpbReadOnce(_In_ PDEVICE_CONTEXT Ctx, _Out_ PULONG_PTR Got)
 {
     NTSTATUS status;
-    WDF_MEMORY_DESCRIPTOR wDesc, rDesc;
+    WDF_MEMORY_DESCRIPTOR rDesc;
     WDF_REQUEST_SEND_OPTIONS opts;
-    UCHAR addr = NANO_IADDR;
     *Got = 0;
     if (Ctx->SpbTarget == NULL) return STATUS_INVALID_DEVICE_STATE;
 
     WDF_REQUEST_SEND_OPTIONS_INIT(&opts, WDF_REQUEST_SEND_OPTION_TIMEOUT);
     WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&opts, WDF_REL_TIMEOUT_IN_MS(150));
 
-    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&wDesc, &addr, sizeof(addr));
-    status = WdfIoTargetSendWriteSynchronously(Ctx->SpbTarget, NULL, &wDesc, NULL, &opts, NULL);
-    if (!NT_SUCCESS(status)) return status;
-
     RtlZeroMemory(Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&rDesc, Ctx->ReadBuffer, sizeof(Ctx->ReadBuffer));
-    return WdfIoTargetSendReadSynchronously(Ctx->SpbTarget, NULL, &rDesc, NULL, &opts, Got);
+    status = WdfIoTargetSendReadSynchronously(Ctx->SpbTarget, NULL, &rDesc, NULL, &opts, Got);
+    return status;
 }

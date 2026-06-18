@@ -27,10 +27,9 @@
 }
 #endif
 
-// Chip uses a 1-byte internal address equal to its slave address (const_iaddr_bytes=1):
-// every write is prefixed on the wire by 0x4C.
-#define NANO_IADDR              0x4C
-#define NANO_FRAME_BYTES        66          // I2C_DATA_LENGTH_WRITE command payload
+// The ACPI I2cSerialBus resource already selects slave 0x4C. The Nanosic command bytes
+// seen in Android dmesg start directly with 0x32; do not prefix 0x4C as payload data.
+#define NANO_FRAME_BYTES        66          // maximum command payload
 
 #define NANO_READ_LEN   68
 #define NANO_FRAME_MAGIC 0x57
