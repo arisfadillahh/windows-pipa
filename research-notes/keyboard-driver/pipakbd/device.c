@@ -31,6 +31,107 @@ PipaKbd_DelayMs(_In_ ULONG Milliseconds)
     (VOID)KeDelayExecutionThread(KernelMode, FALSE, &interval);
 }
 
+#define PIPA_TLMM_GPIO_STRIDE          0x1000UL
+#define PIPA_TLMM_GPIO_CFG_OFFSET      0x0000UL
+#define PIPA_TLMM_GPIO_INOUT_OFFSET    0x0004UL
+#define PIPA_TLMM_GPIO_FUNC_MASK       0x0000000FUL
+#define PIPA_TLMM_GPIO_OUTPUT_ENABLE   (1UL << 9)
+#define PIPA_TLMM_GPIO_OUT_HIGH        (1UL << 1)
+
+static NTSTATUS
+PipaKbd_TlmmWritePin(_In_ PDEVICE_CONTEXT Ctx, _In_ ULONG Pin, _In_ BOOLEAN High)
+{
+    ULONGLONG gpioOffset;
+    volatile ULONG* cfgReg;
+    volatile ULONG* inoutReg;
+    ULONG cfg;
+    ULONG inout;
+
+    if (Ctx->TlmmBase == NULL) {
+        return STATUS_DEVICE_NOT_CONNECTED;
+    }
+
+    gpioOffset = (ULONGLONG)Pin * PIPA_TLMM_GPIO_STRIDE;
+    if (gpioOffset + PIPA_TLMM_GPIO_INOUT_OFFSET + sizeof(ULONG) > Ctx->TlmmLength) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    cfgReg = (volatile ULONG*)((PUCHAR)Ctx->TlmmBase + gpioOffset + PIPA_TLMM_GPIO_CFG_OFFSET);
+    inoutReg = (volatile ULONG*)((PUCHAR)Ctx->TlmmBase + gpioOffset + PIPA_TLMM_GPIO_INOUT_OFFSET);
+
+    inout = READ_REGISTER_ULONG(inoutReg);
+    if (High) {
+        inout |= PIPA_TLMM_GPIO_OUT_HIGH;
+    } else {
+        inout &= ~PIPA_TLMM_GPIO_OUT_HIGH;
+    }
+    WRITE_REGISTER_ULONG(inoutReg, inout);
+
+    cfg = READ_REGISTER_ULONG(cfgReg);
+    cfg &= ~PIPA_TLMM_GPIO_FUNC_MASK;       // function 0 = GPIO
+    cfg |= PIPA_TLMM_GPIO_OUTPUT_ENABLE;
+    WRITE_REGISTER_ULONG(cfgReg, cfg);
+
+    KeMemoryBarrier();
+    Ctx->TlmmLastPin = Pin;
+    Ctx->TlmmLastCfg = READ_REGISTER_ULONG(cfgReg);
+    Ctx->TlmmLastInOut = READ_REGISTER_ULONG(inoutReg);
+    PipaKbd_WriteDword(L"TlmmLastPin", Ctx->TlmmLastPin);
+    PipaKbd_WriteDword(L"TlmmLastCfg", Ctx->TlmmLastCfg);
+    PipaKbd_WriteDword(L"TlmmLastInOut", Ctx->TlmmLastInOut);
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+PipaKbd_TlmmPowerOnKeyboard(_In_ PDEVICE_CONTEXT Ctx)
+{
+    NTSTATUS status;
+
+    if (!Ctx->HaveTlmmMemory) {
+        status = STATUS_NOT_FOUND;
+        PipaKbd_WriteDword(L"TlmmPowerStatus", (ULONG)status);
+        return status;
+    }
+
+    if (Ctx->TlmmBase == NULL) {
+        status = STATUS_DEVICE_NOT_CONNECTED;
+        PipaKbd_WriteDword(L"TlmmPowerStatus", (ULONG)status);
+        return status;
+    }
+
+    // Pins from pipa.dts nanosic@4c: status=46, vdd=127, reset=141, sleep=155.
+    status = PipaKbd_TlmmWritePin(Ctx, 141, FALSE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    status = PipaKbd_TlmmWritePin(Ctx, 127, FALSE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    status = PipaKbd_TlmmWritePin(Ctx, 46, FALSE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    status = PipaKbd_TlmmWritePin(Ctx, 155, FALSE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(5);
+
+    status = PipaKbd_TlmmWritePin(Ctx, 127, TRUE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(10);
+
+    status = PipaKbd_TlmmWritePin(Ctx, 46, TRUE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(5);
+
+    status = PipaKbd_TlmmWritePin(Ctx, 155, TRUE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(10);
+
+    status = PipaKbd_TlmmWritePin(Ctx, 141, TRUE);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(30);
+
+Exit:
+    Ctx->TlmmPowerStatus = status;
+    PipaKbd_WriteDword(L"TlmmPowerStatus", (ULONG)status);
+    return status;
+}
+
 static NTSTATUS
 PipaKbd_GpioWritePins(_In_ PDEVICE_CONTEXT Ctx, _In_ UCHAR Value)
 {
@@ -113,6 +214,19 @@ PipaKbdEvtPrepareHardware(
     ctx->GpioOpenStatus = STATUS_NOT_FOUND;
     ctx->GpioPowerStatus = STATUS_NOT_FOUND;
     ctx->GpioLastValue = 0;
+    ctx->HaveTlmmMemory = FALSE;
+    ctx->TlmmPhysical.QuadPart = 0;
+    ctx->TlmmLength = 0;
+    ctx->TlmmMapStatus = STATUS_NOT_FOUND;
+    ctx->TlmmPowerStatus = STATUS_NOT_FOUND;
+    ctx->TlmmLastPin = 0;
+    ctx->TlmmLastCfg = 0;
+    ctx->TlmmLastInOut = 0;
+
+    if (ctx->TlmmBase != NULL) {
+        MmUnmapIoSpace(ctx->TlmmBase, ctx->TlmmLength);
+        ctx->TlmmBase = NULL;
+    }
 
     for (i = 0; i < count; i++) {
         PCM_PARTIAL_RESOURCE_DESCRIPTOR d = WdfCmResourceListGetDescriptor(ResourcesTranslated, i);
@@ -128,9 +242,24 @@ PipaKbdEvtPrepareHardware(
             ctx->GpioConnectionId.LowPart  = d->u.Connection.IdLowPart;
             ctx->GpioConnectionId.HighPart = d->u.Connection.IdHighPart;
             ctx->HaveGpioIo = TRUE;
+        } else if (d->Type == CmResourceTypeMemory) {
+            ctx->TlmmPhysical = d->u.Memory.Start;
+            ctx->TlmmLength = d->u.Memory.Length;
+            ctx->HaveTlmmMemory = TRUE;
         }
     }
     PipaKbd_WriteDword(L"GpioSeen", ctx->HaveGpioIo ? 1 : 0);
+    PipaKbd_WriteDword(L"TlmmSeen", ctx->HaveTlmmMemory ? 1 : 0);
+    PipaKbd_WriteDword(L"TlmmBaseLow", ctx->TlmmPhysical.LowPart);
+    PipaKbd_WriteDword(L"TlmmBaseHigh", ctx->TlmmPhysical.HighPart);
+    PipaKbd_WriteDword(L"TlmmLength", ctx->TlmmLength);
+
+    if (ctx->HaveTlmmMemory) {
+        ctx->TlmmBase = MmMapIoSpace(ctx->TlmmPhysical, ctx->TlmmLength, MmNonCached);
+        ctx->TlmmMapStatus = (ctx->TlmmBase != NULL) ? STATUS_SUCCESS : STATUS_INSUFFICIENT_RESOURCES;
+    }
+    PipaKbd_WriteDword(L"TlmmMapStatus", (ULONG)ctx->TlmmMapStatus);
+
     if (!haveI2c) return STATUS_DEVICE_CONFIGURATION_ERROR;
     return STATUS_SUCCESS;
 }
@@ -142,6 +271,7 @@ PipaKbdEvtReleaseHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST ResourcesTran
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
     if (ctx->SpbTarget) { WdfIoTargetClose(ctx->SpbTarget); ctx->SpbTarget = NULL; }
     if (ctx->GpioTarget) { WdfIoTargetClose(ctx->GpioTarget); ctx->GpioTarget = NULL; }
+    if (ctx->TlmmBase) { MmUnmapIoSpace(ctx->TlmmBase, ctx->TlmmLength); ctx->TlmmBase = NULL; }
     return STATUS_SUCCESS;
 }
 
@@ -198,6 +328,7 @@ PipaKbdEvtSelfManagedIoInit(_In_ WDFDEVICE Device)
     vhfStatus = PipaKbd_VhfCreate(ctx);
     PipaKbd_WriteDword(L"VhfStatus", (ULONG)vhfStatus);
 
+    (VOID)PipaKbd_TlmmPowerOnKeyboard(ctx);
     (VOID)PipaKbd_PowerOnKeyboard(ctx);
 
     enStatus = PipaKbd_SendEnableSequence(ctx, &okCount);
