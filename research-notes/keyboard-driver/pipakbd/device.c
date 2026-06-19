@@ -23,6 +23,79 @@ PipaKbd_WritePollDiag(_In_ PDEVICE_CONTEXT Ctx)
     PipaKbd_WriteDword(L"LastReadHead", Ctx->LastReadHead);
 }
 
+static VOID
+PipaKbd_DelayMs(_In_ ULONG Milliseconds)
+{
+    LARGE_INTEGER interval;
+    interval.QuadPart = -((LONGLONG)Milliseconds * 10000);
+    (VOID)KeDelayExecutionThread(KernelMode, FALSE, &interval);
+}
+
+static NTSTATUS
+PipaKbd_GpioWritePins(_In_ PDEVICE_CONTEXT Ctx, _In_ UCHAR Value)
+{
+    NTSTATUS status;
+    WDF_MEMORY_DESCRIPTOR input;
+
+    if (Ctx->GpioTarget == NULL) {
+        status = STATUS_DEVICE_NOT_CONNECTED;
+    } else {
+        WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&input, &Value, sizeof(Value));
+        status = WdfIoTargetSendIoctlSynchronously(Ctx->GpioTarget,
+                                                   NULL,
+                                                   IOCTL_GPIO_WRITE_PINS,
+                                                   &input,
+                                                   NULL,
+                                                   NULL,
+                                                   NULL);
+    }
+
+    Ctx->GpioLastValue = Value;
+    PipaKbd_WriteDword(L"GpioLastValue", Ctx->GpioLastValue);
+    PipaKbd_WriteDword(L"GpioLastStatus", (ULONG)status);
+    return status;
+}
+
+static NTSTATUS
+PipaKbd_PowerOnKeyboard(_In_ PDEVICE_CONTEXT Ctx)
+{
+    NTSTATUS status;
+
+    if (!Ctx->HaveGpioIo) {
+        status = STATUS_NOT_FOUND;
+        PipaKbd_WriteDword(L"GpioPowerStatus", (ULONG)status);
+        return status;
+    }
+
+    if (Ctx->GpioTarget == NULL) {
+        status = STATUS_DEVICE_NOT_CONNECTED;
+        PipaKbd_WriteDword(L"GpioPowerStatus", (ULONG)status);
+        return status;
+    }
+
+    // GPIO resource bit order is reset, vdd, sleep.
+    status = PipaKbd_GpioWritePins(Ctx, 0x00);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(5);
+
+    status = PipaKbd_GpioWritePins(Ctx, 0x02);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(10);
+
+    status = PipaKbd_GpioWritePins(Ctx, 0x06);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(10);
+
+    status = PipaKbd_GpioWritePins(Ctx, 0x07);
+    if (!NT_SUCCESS(status)) goto Exit;
+    PipaKbd_DelayMs(30);
+
+Exit:
+    Ctx->GpioPowerStatus = status;
+    PipaKbd_WriteDword(L"GpioPowerStatus", (ULONG)status);
+    return status;
+}
+
 NTSTATUS
 PipaKbdEvtPrepareHardware(
     _In_ WDFDEVICE Device,
@@ -35,6 +108,12 @@ PipaKbdEvtPrepareHardware(
     BOOLEAN haveI2c = FALSE;
     ULONG i;
 
+    ctx->HaveGpioIo = FALSE;
+    ctx->GpioConnectionId.QuadPart = 0;
+    ctx->GpioOpenStatus = STATUS_NOT_FOUND;
+    ctx->GpioPowerStatus = STATUS_NOT_FOUND;
+    ctx->GpioLastValue = 0;
+
     for (i = 0; i < count; i++) {
         PCM_PARTIAL_RESOURCE_DESCRIPTOR d = WdfCmResourceListGetDescriptor(ResourcesTranslated, i);
         if (d->Type == CmResourceTypeConnection &&
@@ -43,8 +122,15 @@ PipaKbdEvtPrepareHardware(
             ctx->SpbConnectionId.LowPart  = d->u.Connection.IdLowPart;
             ctx->SpbConnectionId.HighPart = d->u.Connection.IdHighPart;
             haveI2c = TRUE;
+        } else if (d->Type == CmResourceTypeConnection &&
+                   d->u.Connection.Class == CM_RESOURCE_CONNECTION_CLASS_GPIO &&
+                   d->u.Connection.Type  == CM_RESOURCE_CONNECTION_TYPE_GPIO_IO) {
+            ctx->GpioConnectionId.LowPart  = d->u.Connection.IdLowPart;
+            ctx->GpioConnectionId.HighPart = d->u.Connection.IdHighPart;
+            ctx->HaveGpioIo = TRUE;
         }
     }
+    PipaKbd_WriteDword(L"GpioSeen", ctx->HaveGpioIo ? 1 : 0);
     if (!haveI2c) return STATUS_DEVICE_CONFIGURATION_ERROR;
     return STATUS_SUCCESS;
 }
@@ -55,6 +141,7 @@ PipaKbdEvtReleaseHardware(_In_ WDFDEVICE Device, _In_ WDFCMRESLIST ResourcesTran
     UNREFERENCED_PARAMETER(ResourcesTranslated);
     PDEVICE_CONTEXT ctx = GetDeviceContext(Device);
     if (ctx->SpbTarget) { WdfIoTargetClose(ctx->SpbTarget); ctx->SpbTarget = NULL; }
+    if (ctx->GpioTarget) { WdfIoTargetClose(ctx->GpioTarget); ctx->GpioTarget = NULL; }
     return STATUS_SUCCESS;
 }
 
@@ -76,6 +163,25 @@ PipaKbdEvtD0Entry(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE PreviousSta
     status = WdfIoTargetOpen(target, &open);
     if (!NT_SUCCESS(status)) { WdfObjectDelete(target); return status; }
     ctx->SpbTarget = target;
+
+    if (ctx->HaveGpioIo) {
+        status = WdfIoTargetCreate(Device, WDF_NO_OBJECT_ATTRIBUTES, &target);
+        if (NT_SUCCESS(status)) {
+            RESOURCE_HUB_CREATE_PATH_FROM_ID(&path, ctx->GpioConnectionId.LowPart, ctx->GpioConnectionId.HighPart);
+            WDF_IO_TARGET_OPEN_PARAMS_INIT_OPEN_BY_NAME(&open, &path, FILE_GENERIC_WRITE);
+            status = WdfIoTargetOpen(target, &open);
+            if (NT_SUCCESS(status)) {
+                ctx->GpioTarget = target;
+            } else {
+                WdfObjectDelete(target);
+            }
+        }
+    } else {
+        status = STATUS_NOT_FOUND;
+    }
+    ctx->GpioOpenStatus = status;
+    PipaKbd_WriteDword(L"GpioOpenStatus", (ULONG)status);
+
     return STATUS_SUCCESS;   // NO I2C I/O here - see SelfManagedIoInit (avoids 0x9F).
 }
 
@@ -91,6 +197,8 @@ PipaKbdEvtSelfManagedIoInit(_In_ WDFDEVICE Device)
 
     vhfStatus = PipaKbd_VhfCreate(ctx);
     PipaKbd_WriteDword(L"VhfStatus", (ULONG)vhfStatus);
+
+    (VOID)PipaKbd_PowerOnKeyboard(ctx);
 
     enStatus = PipaKbd_SendEnableSequence(ctx, &okCount);
     PipaKbd_WriteDword(L"EnableOk", okCount);
@@ -114,6 +222,7 @@ PipaKbdEvtD0Exit(_In_ WDFDEVICE Device, _In_ WDF_POWER_DEVICE_STATE TargetState)
     }
     PipaKbd_VhfDestroy(ctx);
     if (ctx->SpbTarget) { WdfIoTargetClose(ctx->SpbTarget); ctx->SpbTarget = NULL; }
+    if (ctx->GpioTarget) { WdfIoTargetClose(ctx->GpioTarget); ctx->GpioTarget = NULL; }
     return STATUS_SUCCESS;
 }
 

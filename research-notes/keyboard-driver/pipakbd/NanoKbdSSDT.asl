@@ -4,17 +4,12 @@
  * Adds \_SB.I2C2.KBD0 (_HID NANO0803) so Windows enumerates ACPI\NANO0803 and binds
  * pipakbd.sys. Resources:
  *   - I2cSerialBusV2 slave 0x4C on \_SB.I2C2 (the working keyboard bus, IRQ 635)
- *   - GpioInt on \_SB.GIO0 pin 100 (TLMM GPIO 100 = the chip attention line)
+ *   - GpioIo on \_SB.GIO0 pins reset/vdd/sleep = 141/127/155
  *
- * Build/flash: compile with iasl, append as a new ACPI section (e.g. SEC8) exactly like
- * the append-only I2C2 SSDT pattern in codex-repack-v25/v29, producing a v31 image. This
- * is the ONLY device-side change pipakbd needs; it does not touch GIO0/I2C2/SPI4, so the
- * v29/v30 baseline behaviour is preserved (rollback ladder unchanged).
- *
- * I2C speed: 400 kHz assumed (fast mode). Confirm against nano_i2c.c board_info if the
- * chip NAKs at 400k; drop to 100k otherwise.
+ * I2C speed: 400 kHz assumed (fast mode). The GPIO resource is output-only:
+ * the driver powers the chip and polls over I2C; it does not use the attention IRQ yet.
  */
-DefinitionBlock ("", "SSDT", 2, "PIPA", "NANOKBD", 0x00000001)
+DefinitionBlock ("", "SSDT", 2, "PIPA", "NANOKBD", 0x00000002)
 {
     External (\_SB.I2C2, DeviceObj)
     External (\_SB.GIO0, DeviceObj)
@@ -26,11 +21,9 @@ DefinitionBlock ("", "SSDT", 2, "PIPA", "NANOKBD", 0x00000001)
             Name (_HID, "NANO0803")
             Name (_UID, Zero)
             Name (_DDN, "Xiaomi Pad 6 Keyboard (Nanosic 803)")
+            Name (_DEP, Package (0x01) { \_SB.GIO0 })
             Method (_STA, 0, NotSerialized) { Return (0x0F) }
 
-            // I2C-only: no GpioInt. A GpioInt on GIO0 caused STATUS_DEVICE_POWER_FAILURE
-            // (Code 10) at ACPI bring-up — GIO0's interrupt delivery isn't usable. The driver
-            // polls the chip over I2C instead, so no interrupt resource is declared.
             Method (_CRS, 0, Serialized)
             {
                 Name (RBUF, ResourceTemplate ()
@@ -38,6 +31,12 @@ DefinitionBlock ("", "SSDT", 2, "PIPA", "NANOKBD", 0x00000001)
                     I2cSerialBusV2 (0x004C, ControllerInitiated, 0x00061A80,
                         AddressingMode7Bit, "\\_SB.I2C2",
                         0x00, ResourceConsumer, , Exclusive, )
+
+                    // Pin order is reset, vdd, sleep. pipakbd writes bit 0/1/2 in this order.
+                    GpioIo (Exclusive, PullNone, 0x0000, 0x0000,
+                        IoRestrictionOutputOnly, "\\_SB.GIO0", 0x00,
+                        ResourceConsumer, , )
+                        { 0x008D, 0x007F, 0x009B }
                 })
                 Return (RBUF)
             }

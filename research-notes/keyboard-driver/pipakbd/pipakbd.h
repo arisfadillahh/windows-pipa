@@ -12,6 +12,7 @@
 #include <vhf.h>
 #include <ntstrsafe.h>  // RtlStringCchPrintfW
 #include <reshub.h>     // RESOURCE_HUB_PATH_SIZE, RESOURCE_HUB_DEVICE_NAME_PREFIX
+#include <gpio.h>       // IOCTL_GPIO_WRITE_PINS
 
 #ifndef RESOURCE_HUB_CREATE_PATH_FROM_ID
 #define RESOURCE_HUB_CREATE_PATH_FROM_ID(Path, LowPart, HighPart)                  \
@@ -53,12 +54,18 @@
 typedef struct _DEVICE_CONTEXT {
     WDFDEVICE       Device;
     WDFIOTARGET     SpbTarget;
+    WDFIOTARGET     GpioTarget;
     WDFTIMER        PollTimer;
     VHFHANDLE       VhfHandle;
     LARGE_INTEGER   SpbConnectionId;
+    LARGE_INTEGER   GpioConnectionId;
     UCHAR           ReadBuffer[NANO_READ_LEN];
     BOOLEAN         VhfStarted;
     BOOLEAN         StopPolling;
+    BOOLEAN         HaveGpioIo;
+    NTSTATUS        GpioOpenStatus;
+    NTSTATUS        GpioPowerStatus;
+    ULONG           GpioLastValue;
     ULONG           PollCount;
     ULONG           PollOk;
     ULONG           PollTimeout;
