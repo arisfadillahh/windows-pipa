@@ -37,6 +37,8 @@ PipaKbd_DelayMs(_In_ ULONG Milliseconds)
 #define PIPA_TLMM_GPIO_FUNC_MASK       0x0000000FUL
 #define PIPA_TLMM_GPIO_OUTPUT_ENABLE   (1UL << 9)
 #define PIPA_TLMM_GPIO_OUT_HIGH        (1UL << 1)
+#define PIPA_TLMM_BASE_PHYSICAL        0x0F100000ULL
+#define PIPA_TLMM_LENGTH               0x00300000UL
 
 static NTSTATUS
 PipaKbd_TlmmWritePin(_In_ PDEVICE_CONTEXT Ctx, _In_ ULONG Pin, _In_ BOOLEAN High)
@@ -222,6 +224,7 @@ PipaKbdEvtPrepareHardware(
     ctx->TlmmLastPin = 0;
     ctx->TlmmLastCfg = 0;
     ctx->TlmmLastInOut = 0;
+    PipaKbd_WriteDword(L"TlmmSource", 0);
 
     if (ctx->TlmmBase != NULL) {
         MmUnmapIoSpace(ctx->TlmmBase, ctx->TlmmLength);
@@ -246,7 +249,14 @@ PipaKbdEvtPrepareHardware(
             ctx->TlmmPhysical = d->u.Memory.Start;
             ctx->TlmmLength = d->u.Memory.Length;
             ctx->HaveTlmmMemory = TRUE;
+            PipaKbd_WriteDword(L"TlmmSource", 1);
         }
+    }
+    if (!ctx->HaveTlmmMemory) {
+        ctx->TlmmPhysical.QuadPart = PIPA_TLMM_BASE_PHYSICAL;
+        ctx->TlmmLength = PIPA_TLMM_LENGTH;
+        ctx->HaveTlmmMemory = TRUE;
+        PipaKbd_WriteDword(L"TlmmSource", 2);
     }
     PipaKbd_WriteDword(L"GpioSeen", ctx->HaveGpioIo ? 1 : 0);
     PipaKbd_WriteDword(L"TlmmSeen", ctx->HaveTlmmMemory ? 1 : 0);

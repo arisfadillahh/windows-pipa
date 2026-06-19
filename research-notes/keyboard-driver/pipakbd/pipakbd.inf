@@ -6,7 +6,7 @@ Class       = System
 ClassGuid   = {4D36E97D-E325-11CE-BFC1-08002BE10318}
 Provider    = %ProviderName%
 CatalogFile = pipakbd.cat
-DriverVer   = 06/19/2026,1.4.0.0
+DriverVer   = 06/19/2026,1.5.0.0
 PnpLockdown = 1
 
 [DestinationDirs]
