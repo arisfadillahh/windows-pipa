@@ -9,9 +9,23 @@ your own device.
 
 ## Current goal
 
-Replace the existing Linux/postmarketOS partition with Windows ARM64 while
-keeping Android intact, then boot Windows through a UEFI image flashed to the
-Linux boot slot.
+Develop Windows ARM64 on a separate partition while preserving a known-good
+Arch Linux installation and a tested recovery path. The current recovered
+baseline uses kernel `6.15.11-5-pipa-alarm`; Windows hardware bring-up remains
+experimental.
+
+## Recovery checkpoint — 2026-11-06
+
+Arch Linux recovered from a black-screen Qualcomm 9008 state using native Mac
+EDL access and a verified five-sector GPT-header correction. Arch's partition
+and kernel were preserved; no factory reset or bootloader relock was needed.
+SSH, an ext4 read-write root, the existing kernel and the front-camera bridge
+service were verified after boot. A fresh camera capture was not tested.
+
+The [recovery checkpoint](research-notes/docs/checkpoints/CHECKPOINT-EDL-GPT-RECOVERY-20261106.md)
+records the exact evidence, backup scope, authentication limits, header-only
+repair and readback checks. The Firehose access used for recovery does not
+provide Windows GPU, touch, keyboard or camera drivers.
 
 ## What works in this repo today
 
@@ -50,6 +64,11 @@ postmarketOS having working GPU and touch is useful evidence, but Windows still
 needs Windows ARM64 drivers and ACPI descriptions.
 
 ## Quick start
+
+The commands below describe the original installer workflow, including
+formatting a Linux target. They are not a validated installation plan for the
+current preserved-Arch layout. Read the recovery checkpoint and establish fresh
+backups and recovery gates before another Windows experiment.
 
 Run PowerShell as Administrator on the PC:
 
